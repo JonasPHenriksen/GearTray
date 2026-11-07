@@ -29,7 +29,7 @@ internal sealed class Section : TableLayoutPanel
         var link = new LinkLabel
         {
             Text = "hide", AutoSize = true, Margin = new Padding(0, 1, 0, 0),
-            LinkColor = SystemColors.GrayText, ActiveLinkColor = SystemColors.HotTrack, LinkBehavior = LinkBehavior.HoverUnderline,
+            LinkColor = Theme.Dim, ActiveLinkColor = Theme.LinkActive, LinkBehavior = LinkBehavior.HoverUnderline,
         };
         link.LinkClicked += (_, _) => hide(this);
         header.Controls.Add(label);
@@ -50,7 +50,7 @@ internal sealed class Section : TableLayoutPanel
     {
         var l = new Label
         {
-            Text = text, AutoSize = true, MaximumSize = new Size(580, 0), ForeColor = SystemColors.GrayText, Margin = new Padding(3, 4, 3, 4),
+            Text = text, AutoSize = true, MaximumSize = new Size(580, 0), ForeColor = Theme.Dim, Margin = new Padding(3, 4, 3, 4),
         };
         Controls.Add(l);
         SetColumnSpan(l, 2);

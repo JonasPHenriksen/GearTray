@@ -67,7 +67,7 @@ internal static class Ui
 
     public static Button ColorButton()
     {
-        var b = new Button { Width = 64, Height = 26, FlatStyle = FlatStyle.Flat, Text = "" };
+        var b = Theme.Keep(new Button { Width = 64, Height = 26, FlatStyle = FlatStyle.Flat, Text = "" }); // its colour is the setting
         b.Click += (_, _) =>
         {
             using var d = new ColorDialog { Color = b.BackColor, FullOpen = true, AnyColor = true };
@@ -100,7 +100,7 @@ internal sealed class LabeledSlider : FlowLayoutPanel
         {
             Minimum = min, Maximum = max, TickStyle = TickStyle.None, AutoSize = false,
             Width = width, Height = 32, LargeChange = Math.Max(1, (max - min) / 10), SmallChange = 1,
-            BackColor = SystemColors.Window, // match the tab page instead of a grey box
+            BackColor = Theme.Page, // match the tab page instead of a grey box
         };
         Bar.ValueChanged += (_, _) => { _label.Text = _format(Bar.Value); ValueChanged?.Invoke(this, EventArgs.Empty); };
         Controls.Add(Bar);

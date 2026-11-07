@@ -60,6 +60,7 @@ public sealed class TrayContext : ApplicationContext
     {
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         Settings = SettingsStore.Load<AppSettings>();
+        Theme.Set(Settings.DarkMode);
         Devices = DeviceManager.CreateDefault();
         _effects = new EffectEngine(Devices);
         _screen = new BaseStationScreen(Devices, DashboardSnapshot);
@@ -679,7 +680,9 @@ public sealed class TrayContext : ApplicationContext
 
     // ---------- windows, settings, elevation ----------
 
-    public void ShowSettings()
+    public void ShowSettings() => ShowSettings(null, null);
+
+    private void ShowSettings(Rectangle? bounds, string? tabKey)
     {
         if (_form is { IsDisposed: false })
         {
@@ -687,10 +690,35 @@ public sealed class TrayContext : ApplicationContext
             _form.Activate();
             return;
         }
-        _form = new SettingsForm(this);
+        _form = new SettingsForm(this, tabKey);
+        if (bounds is { } b)
+        {
+            _form.StartPosition = FormStartPosition.Manual;
+            _form.Bounds = b;
+        }
         _form.FormClosed += (_, _) => _form = null;
         _form.Show();
         _form.Activate();
+    }
+
+    /// <summary>
+    /// Switch between the light and the dark look, and remember it. An open settings window is rebuilt in the new look,
+    /// in the same place and on the same tab (after the click that asked for it has been handled).
+    /// </summary>
+    public void SetDarkMode(bool dark)
+    {
+        if (dark == Theme.Dark && Settings.DarkMode == dark) return;
+        Settings.DarkMode = dark;
+        SaveSettings();
+        Theme.Set(dark);
+        if (_form is not { IsDisposed: false } old) return;
+        var bounds = old.WindowState == FormWindowState.Normal ? old.Bounds : old.RestoreBounds;
+        string? tab = old.SelectedTabKey;
+        old.BeginInvoke(() =>
+        {
+            old.Close();
+            ShowSettings(bounds, tab);
+        });
     }
 
     public void SaveSettings()

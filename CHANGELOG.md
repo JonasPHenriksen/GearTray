@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.0 (2026-11-07)
+
+- **Dark mode**: a switch at the bottom right of the settings window, where
+  Wabbajack Wizard has its own, with Wabbajack Wizard's dark colours. The
+  title bar is asked for the window's own colours the same way (on Windows 11
+  it matches exactly; Windows 10 gets its plain dark bar), the tab strip is
+  drawn dark, and the tray menu and the macro and profile editors follow.
+  Until the switch is used, GearTray follows Windows' app mode. Switching
+  rebuilds the settings window in the same place and on the same tab (edits
+  not yet applied to a device are dropped).
+- The light look is unchanged.
+- Opening GearTray from the Start menu while it runs (or while its startup
+  task takes over) no longer creates `%APPDATA%\GearTray` for one log line:
+  only the instance that keeps running logs.
+- `--theme-preview FILE.png` shows a sample window and menu in both looks and
+  saves them as captured from the screen, title bar included.
+
 ## 0.7.1 (2026-11-07)
 
 - **App icon**: a white cog on a blue-to-violet rounded square, the shape of

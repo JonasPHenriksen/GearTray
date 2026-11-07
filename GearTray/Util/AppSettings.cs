@@ -7,11 +7,13 @@ namespace GearTray.Util;
 public enum TrayBatterySource { Lowest, Mouse, Headset, Controller }
 
 /// <summary>
-/// App preferences (%APPDATA%\GearTray\settings.json). Mouse and headset settings live in the devices themselves;
-/// keyboard lighting is kept here because the keyboard can't report its current effect.
+/// App preferences (settings.json; see Log.Directory for where). Mouse and headset settings live in the devices
+/// themselves; keyboard lighting is kept here because the keyboard can't report its current effect.
 /// </summary>
 public sealed class AppSettings
 {
+    /// <summary>The settings window's look: dark, light, or (null, until the switch is used) Windows' app mode.</summary>
+    public bool? DarkMode { get; set; }
     public KeyboardLightingSettings Keyboard { get; set; } = new();
     public KeyboardFeatureSettings KeyboardFeatures { get; set; } = new();
     public MouseBatteryLightSettings MouseBatteryLight { get; set; } = new();

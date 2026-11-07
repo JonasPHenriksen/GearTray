@@ -68,14 +68,14 @@ internal sealed class HeadsetTab : SettingsTab
             var bar = new TrackBar
             {
                 Orientation = Orientation.Vertical, Minimum = -20, Maximum = 20, TickStyle = TickStyle.None,
-                AutoSize = false, Width = 36, Height = 120, SmallChange = 1, LargeChange = 4, BackColor = SystemColors.Window,
+                AutoSize = false, Width = 36, Height = 120, SmallChange = 1, LargeChange = 4, BackColor = Theme.Page,
             };
             var value = new Label { AutoSize = false, Width = 44, Height = 18, TextAlign = ContentAlignment.MiddleCenter, Text = "0" };
             bar.ValueChanged += (_, _) => value.Text = (bar.Value / 2.0).ToString("+0.#;-0.#;0");
             var col = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Margin = new Padding(0) };
             col.Controls.Add(bar);
             col.Controls.Add(value);
-            col.Controls.Add(new Label { Text = (i + 1).ToString(), AutoSize = false, Width = 44, Height = 18, TextAlign = ContentAlignment.MiddleCenter, ForeColor = SystemColors.GrayText });
+            col.Controls.Add(new Label { Text = (i + 1).ToString(), AutoSize = false, Width = 44, Height = 18, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Theme.Dim });
             _eqBands[i] = bar;
             bands.Controls.Add(col);
         }

@@ -12,7 +12,7 @@ internal sealed class ControllerView : Control
     {
         SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         Size = new Size(540, 270);
-        BackColor = SystemColors.Window;
+        BackColor = Theme.Page;
     }
 
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
@@ -27,8 +27,8 @@ internal sealed class ControllerView : Control
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.Clear(BackColor);
-        using var outline = new Pen(SystemColors.ControlDark, 1.5f);
-        using var text = new SolidBrush(SystemColors.ControlText);
+        using var outline = new Pen(Theme.Line, 1.5f);
+        using var text = new SolidBrush(Theme.Text);
         using var small = new Font(Font.FontFamily, 8f);
         var s = _state;
         var b = s?.Buttons ?? PadButtons.None;
@@ -86,22 +86,24 @@ internal sealed class ControllerView : Control
 
     private void Bar(Graphics g, int x, int y, int w, int h, float value, string label)
     {
-        using var border = new Pen(SystemColors.ControlDark);
+        using var border = new Pen(Theme.Line);
         using var fill = new SolidBrush(Color.FromArgb(220, 60, 140, 220));
         g.FillRectangle(fill, x, y, w * Math.Clamp(value, 0, 1), h);
         g.DrawRectangle(border, x, y, w, h);
         using var f = new Font(Font.FontFamily, 7.5f);
-        g.DrawString(label, f, SystemBrushes.ControlText, x + 4, y + 1);
+        using var text = new SolidBrush(Theme.Text);
+        g.DrawString(label, f, text, x + 4, y + 1);
     }
 
     private void Pill(Graphics g, int x, int y, int w, int h, bool on, string label, Color color)
     {
-        using var border = new Pen(SystemColors.ControlDark);
+        using var border = new Pen(Theme.Line);
         if (on) using (var fill = new SolidBrush(color)) g.FillRectangle(fill, x, y, w, h);
         g.DrawRectangle(border, x, y, w, h);
         using var f = new Font(Font.FontFamily, 7.5f);
         var size = g.MeasureString(label, f);
-        g.DrawString(label, f, on ? Brushes.White : SystemBrushes.ControlText, x + (w - size.Width) / 2, y + (h - size.Height) / 2);
+        using var text = new SolidBrush(on ? Color.White : Theme.Text);
+        g.DrawString(label, f, text, x + (w - size.Width) / 2, y + (h - size.Height) / 2);
     }
 
     private void Round(Graphics g, int x, int y, int d, bool on, string label, Color color)
@@ -121,7 +123,7 @@ internal sealed class ControllerView : Control
     private void Stick(Graphics g, int cx, int cy, float x, float y, bool pressed)
     {
         const int r = 34;
-        using var ring = new Pen(SystemColors.ControlDark, 1.5f);
+        using var ring = new Pen(Theme.Line, 1.5f);
         using var dead = new Pen(Color.FromArgb(90, Color.Gray)) { DashStyle = DashStyle.Dot };
         if (pressed) using (var f = new SolidBrush(Color.FromArgb(70, Color.SteelBlue))) g.FillEllipse(f, cx - r, cy - r, r * 2, r * 2);
         g.DrawEllipse(ring, cx - r, cy - r, r * 2, r * 2);

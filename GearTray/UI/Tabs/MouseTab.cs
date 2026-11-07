@@ -48,7 +48,7 @@ internal sealed class MouseTab : SettingsTab
         {
             _dpi[i] = new NumericUpDown { Minimum = 50, Maximum = 42000, Increment = 50, Width = 90, ThousandsSeparator = true };
             _dpiColor[i] = Ui.ColorButton();
-            _dpiActive[i] = new Label { AutoSize = true, Margin = new Padding(10, 8, 0, 0), ForeColor = SystemColors.GrayText };
+            _dpiActive[i] = new Label { AutoSize = true, Margin = new Padding(10, 8, 0, 0), ForeColor = Theme.Dim };
             dpi.Row($"Stage {i + 1}", Section.Line(_dpi[i], Section.Caption("color"), _dpiColor[i], _dpiActive[i]));
         }
         dpi.Row("Stage in use", _stage);

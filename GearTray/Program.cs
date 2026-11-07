@@ -41,7 +41,8 @@ internal static class Program
 
     private static int RunTray(bool fromStartupTask)
     {
-        Log.Info($"startup: tray mode, from task {fromStartupTask}, admin {Elevation.IsAdmin}, session {System.Diagnostics.Process.GetCurrentProcess().SessionId}, exe {Environment.ProcessPath}");
+        // A launch that only hands over (to the running GearTray or to the startup task) logs nothing: without admin
+        // rights its log would be %APPDATA%\GearTray, a folder the installed GearTray doesn't otherwise use.
         if (!AcquireInstanceLock())
         {
             DeviceChangeWindow.SignalRunningInstance(); // already running: just open its settings window
@@ -56,6 +57,7 @@ internal static class Program
             if (!AcquireInstanceLock()) return 0;
         }
 
+        Log.Info($"startup: tray mode, from task {fromStartupTask}, admin {Elevation.IsAdmin}, session {System.Diagnostics.Process.GetCurrentProcess().SessionId}, exe {Environment.ProcessPath}");
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) => Log.Error("Unhandled UI error", e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Error("Fatal error", e.ExceptionObject as Exception);

@@ -6,6 +6,12 @@ namespace GearTray.UI;
 /// <summary>Create or edit a macro: trigger key, then either recorded key presses (with timing) or a text to type.</summary>
 internal sealed class MacroEditorForm : Form
 {
+    protected override void OnLoad(EventArgs e)
+    {
+        Theme.Apply(this);
+        base.OnLoad(e);
+    }
+
     private readonly TrayContext _tray;
     private readonly TextBox _name = new() { Width = 260 };
     private readonly KeyCaptureBox _trigger = new();

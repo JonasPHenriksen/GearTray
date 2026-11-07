@@ -23,6 +23,7 @@ namespace GearTray;
 ///   --install-startup / --uninstall-startup   (must run elevated)
 ///   --open-test PATH                          open PATH through the desktop's Explorer, as the Open buttons do with admin rights
 ///   --write-icon FILE.ico [PREVIEW.png]       write GearTray.ico (and a preview sheet) from the logo drawing
+///   --theme-preview FILE.png                  sample window in the light and the dark look, captured from the screen
 /// Global: --trace (log every HID report), --out FILE. Several commands can be chained with ";;".
 /// </summary>
 internal static class Cli
@@ -31,7 +32,7 @@ internal static class Cli
         ["--probe", "--list-hid", "--mouse", "--mouse-light", "--kb-light", "--kb-gamemode", "--headset", "--install-startup", "--uninstall-startup",
          "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling", "--screen-preview", "--screen-test",
          "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--screen-speed", "--fps-test", "--cpu-temp", "--xbox", "--xbox-light", "--xbox-light-test",
-         "--open-test", "--write-icon"];
+         "--open-test", "--write-icon", "--theme-preview"];
 
     /// <summary>Runs one command, or several separated by ";;" (one elevation prompt for a whole test sequence).</summary>
     public static int Run(string[] args)
@@ -73,6 +74,11 @@ internal static class Cli
                 case "--open-test":
                     ShellOpen.ThroughExplorer(rest[1]);
                     Console.WriteLine($"Explorer was asked to open {rest[1]}");
+                    return 0;
+                case "--theme-preview":
+                    ApplicationConfiguration.Initialize(); // DPI awareness, so the screen capture lines up
+                    using (var sheet = UI.ThemePreview.Capture()) sheet.Save(rest[1], System.Drawing.Imaging.ImageFormat.Png);
+                    Console.WriteLine($"Wrote {rest[1]} (light and dark)");
                     return 0;
                 case "--write-icon":
                     File.WriteAllBytes(rest[1], UI.Logo.Ico());

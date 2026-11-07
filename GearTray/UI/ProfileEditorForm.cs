@@ -7,6 +7,12 @@ namespace GearTray.UI;
 /// <summary>Edit a program profile: which programs, and what changes while one of them is in front.</summary>
 internal sealed class ProfileEditorForm : Form
 {
+    protected override void OnLoad(EventArgs e)
+    {
+        Theme.Apply(this);
+        base.OnLoad(e);
+    }
+
     private readonly TextBox _name = new() { Width = 300 };
     private readonly TextBox _programs = new() { Width = 300 };
     private readonly ComboBox _running = new() { Width = 300, DropDownStyle = ComboBoxStyle.DropDownList };

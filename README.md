@@ -28,6 +28,13 @@ disappear from the settings window and from the tray menu. The General tab
 lists every tab and block with a checkbox, to show them again (or to hide a
 whole tab).
 
+## Dark mode
+
+The **Dark mode** switch at the bottom right of the settings window gives the
+window, its title bar, its tab strip and the tray menu the dark colours of
+Wabbajack Wizard. Until it's used, GearTray follows Windows' app mode
+(Settings > Personalization > Colors).
+
 ## What runs in software
 
 Some of what the vendor apps offer lives in the app, not in the device.
@@ -196,6 +203,7 @@ whole test run).
 --uninstall                          remove GearTray (what Installed apps runs)
 --open-test PATH                     open PATH through the desktop's Explorer, as the Open buttons do with admin rights
 --write-icon FILE.ico [PREVIEW.png]  write the app icon (and a sheet of all its sizes) from the logo drawing
+--theme-preview FILE.png             a sample window and menu in the light and the dark look, captured from the screen
 --screenshot DIR                     render each settings tab to a PNG
 ```
 
@@ -225,6 +233,6 @@ GearTray/
 ├── Devices/                one class per device, the keyboard's LED map, Xbox controllers, the device thread
 ├── Effects/                Ambient (DXGI / GDI screen sampling), audio meter, ripple, base-station screen
 ├── Input/                  keyboard hook (game mode, remaps, macros), macro player, game detection
-├── UI/                     tray icon, logo, settings window (one file per tab), keyboard painter, controller view
+├── UI/                     tray icon, logo, light/dark theme, settings window (one file per tab), keyboard painter, controller view
 └── Util/                   settings, log, elevation and the logon task
 ```

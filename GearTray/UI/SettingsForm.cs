@@ -10,14 +10,16 @@ namespace GearTray.UI;
 public sealed class SettingsForm : Form
 {
     private readonly TrayContext _tray;
-    private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
-    private readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 30, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 10, 0) };
+    private readonly TabControl _tabs = new ThemedTabControl { Dock = DockStyle.Fill };
+    private readonly Label _status = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 10, 0) };
+    private readonly CheckBox _dark = new() { Text = "Dark mode", AutoSize = true, Dock = DockStyle.Right, Padding = new Padding(0, 0, 10, 0) };
     private readonly List<SettingsTab> _all;
     private readonly GeneralTab _general;
     private SettingsTab? _active;
     private bool _loading;
 
-    internal SettingsForm(TrayContext tray)
+    /// <param name="tabKey">The tab to open on (the window is rebuilt on it when the look changes).</param>
+    internal SettingsForm(TrayContext tray, string? tabKey = null)
     {
         _tray = tray;
         Text = "GearTray";
@@ -38,14 +40,30 @@ public sealed class SettingsForm : Form
             new ProgramsTab(this, tray),
             _general,
         ];
+        // Bottom bar: the status line, and the Dark mode switch on the right, where Wabbajack Wizard has it.
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 30 };
+        bottom.Controls.Add(_status);
+        bottom.Controls.Add(_dark);
+        _dark.Checked = Theme.Dark;
+        _dark.CheckedChanged += (_, _) => _tray.SetDarkMode(_dark.Checked);
         Controls.Add(_tabs);
-        Controls.Add(_status);
+        Controls.Add(bottom);
         ApplyVisibility();
         _general.FillVisibility(_all);
+        if (_all.FirstOrDefault(t => t.Key == tabKey)?.Page is { } page && _tabs.TabPages.Contains(page)) _tabs.SelectedTab = page;
 
         _tabs.SelectedIndexChanged += (_, _) => SwitchTab();
         Shown += async (_, _) => { await ReloadAll(); SwitchTab(); };
         FormClosing += (_, _) => _active?.Deactivated();
+    }
+
+    /// <summary>The key of the tab on show.</summary>
+    public string? SelectedTabKey => _all.FirstOrDefault(t => t.Page == _tabs.SelectedTab)?.Key;
+
+    protected override void OnLoad(EventArgs e)
+    {
+        Theme.Apply(this);
+        base.OnLoad(e);
     }
 
     private void SwitchTab()
