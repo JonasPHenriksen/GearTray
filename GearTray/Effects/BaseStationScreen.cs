@@ -6,16 +6,13 @@ using GearTray.Util;
 namespace GearTray.Effects;
 
 /// <summary>
-/// What the base-station screen shows; supplied by the tray. Game is the running game's name, if any. The *Seconds
-/// values are how long each page stays up when more than one page applies.
+/// What the base-station screen needs from the tray. Game is the running game's name, if any. The *Seconds values are
+/// how long each page stays up when more than one page applies. PingHost is the server to ping (empty: none).
 /// </summary>
-public sealed record DashboardData(int? Mouse, bool MouseCharging, int? Headset, bool HeadsetCharging, int? Spare,
-    string? Controller, bool GameMode, string? Profile,
-    string? Game = null, DateTime? GameStarted = null, bool ShowMedia = true, bool ShowStats = true,
-    int ClockSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8, uint GamePid = 0,
-    string? PingHost = null);
+public sealed record DashboardData(string? Game = null, DateTime? GameStarted = null, bool ShowMedia = true, bool ShowStats = true,
+    int HomeSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8, uint GamePid = 0, string? PingHost = null);
 
-public enum ScreenPage { Clock, Media, Stats }
+public enum ScreenPage { Home, Media, Stats }
 
 /// <summary>
 /// GearTray's own screen on the Arctis base station's 128×64 OLED. The home page (clock, date, network speed, headset
@@ -36,7 +33,7 @@ public sealed partial class BaseStationScreen : IDisposable
     private System.Threading.Timer? _timer;
     private volatile bool _running;
     private int _busy;
-    private ScreenPage _page = ScreenPage.Clock;
+    private ScreenPage _page = ScreenPage.Home;
     private DateTime _pageSince;
     private string? _lastTrack;
     private (string Title, string Text, DateTime Until)? _popup;
@@ -261,8 +258,8 @@ public sealed partial class BaseStationScreen : IDisposable
 
     private ScreenPage NextPage(ScreenPage current, bool media, bool stats, DashboardData d)
     {
-        ScreenPage[] order = stats ? [ScreenPage.Stats, ScreenPage.Clock, ScreenPage.Media] : [ScreenPage.Clock, ScreenPage.Media];
-        var eligible = order.Where(p => p == ScreenPage.Clock || (p == ScreenPage.Media && media) || (p == ScreenPage.Stats && stats)).ToList();
+        ScreenPage[] order = stats ? [ScreenPage.Stats, ScreenPage.Home, ScreenPage.Media] : [ScreenPage.Home, ScreenPage.Media];
+        var eligible = order.Where(p => p == ScreenPage.Home || (p == ScreenPage.Media && media) || (p == ScreenPage.Stats && stats)).ToList();
         var now = DateTime.UtcNow;
         if (!eligible.Contains(current)) { _pageSince = now; return eligible[0]; }
         if (eligible.Count == 1 || now - _pageSince < Dwell(current, d)) return current;
@@ -275,7 +272,7 @@ public sealed partial class BaseStationScreen : IDisposable
     {
         ScreenPage.Stats => d.StatsSeconds,
         ScreenPage.Media => d.MediaSeconds,
-        _ => d.ClockSeconds,
+        _ => d.HomeSeconds,
     }, 2, 300));
 
     // ---------- pages ----------

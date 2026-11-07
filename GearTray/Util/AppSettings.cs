@@ -42,7 +42,10 @@ public sealed class HeadsetScreenSettings
     public bool ShowPopups { get; set; } = true;
     /// <summary>A server (IP address or name) pinged every second; the home page shows "Server: On" or "Off". Empty = none.</summary>
     public string PingHost { get; set; } = "";
-    /// <summary>How long each page stays up before the next one, in seconds (when more than one page applies).</summary>
+    /// <summary>
+    /// How long each page stays up before the next one, in seconds (when more than one page applies). ClockSeconds is the
+    /// home page's, named from when that page was just a clock (kept so saved settings carry over).
+    /// </summary>
     public int ClockSeconds { get; set; } = 8;
     public int NowPlayingSeconds { get; set; } = 6;
     public int PcStatsSeconds { get; set; } = 8;

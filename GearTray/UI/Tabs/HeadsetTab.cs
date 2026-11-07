@@ -35,7 +35,7 @@ internal sealed class HeadsetTab : SettingsTab
     private readonly CheckBox _screenMedia = new() { Text = "Now playing, while music or video plays", AutoSize = true };
     private readonly CheckBox _screenStats = new() { Text = "PC stats, while a game runs", AutoSize = true };
     private readonly CheckBox _screenPopups = new() { Text = "Pop-ups for game mode, program profiles and the controller", AutoSize = true };
-    private readonly NumericUpDown _secClock = PageSeconds(), _secMedia = PageSeconds(), _secStats = PageSeconds();
+    private readonly NumericUpDown _secHome = PageSeconds(), _secMedia = PageSeconds(), _secStats = PageSeconds();
     private readonly TextBox _pingHost = new() { Width = 130, PlaceholderText = "e.g. 192.168.50.10" };
 
     private static NumericUpDown PageSeconds() => new() { Minimum = 2, Maximum = 300, Width = 52, Margin = new Padding(3, 5, 10, 3) };
@@ -114,7 +114,7 @@ internal sealed class HeadsetTab : SettingsTab
             screen.Span(page);
         }
         screen.Row("Seconds per page", Section.Line(
-            Section.Caption("Clock"), _secClock, Section.Caption("Now playing"), _secMedia, Section.Caption("PC stats"), _secStats));
+            Section.Caption("Home"), _secHome, Section.Caption("Now playing"), _secMedia, Section.Caption("PC stats"), _secStats));
         screen.Row("Server to ping", Section.Line(_pingHost, Section.Caption("IP address or name; leave empty for none")));
         screen.Note("Replaces the base station's normal screen while GearTray runs. The home page (clock, date, download and upload " +
                     "speed, headset volume and a live sound meter) is always there; now playing and PC stats join it only while they " +
@@ -127,17 +127,17 @@ internal sealed class HeadsetTab : SettingsTab
         _screenMedia.Checked = screenSettings.ShowNowPlaying;
         _screenStats.Checked = screenSettings.ShowPcStats;
         _screenPopups.Checked = screenSettings.ShowPopups;
-        _secClock.Value = Math.Clamp(screenSettings.ClockSeconds, 2, 300);
+        _secHome.Value = Math.Clamp(screenSettings.ClockSeconds, 2, 300);
         _secMedia.Value = Math.Clamp(screenSettings.NowPlayingSeconds, 2, 300);
         _secStats.Value = Math.Clamp(screenSettings.PcStatsSeconds, 2, 300);
-        _secClock.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.ClockSeconds = (int)_secClock.Value; Tray.SaveSettings(); };
+        _secHome.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.ClockSeconds = (int)_secHome.Value; Tray.SaveSettings(); };
         _secMedia.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.NowPlayingSeconds = (int)_secMedia.Value; Tray.SaveSettings(); };
         _secStats.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.PcStatsSeconds = (int)_secStats.Value; Tray.SaveSettings(); };
         _pingHost.Text = screenSettings.PingHost;
         _pingHost.TextChanged += (_, _) => { Tray.Settings.HeadsetScreen.PingHost = _pingHost.Text.Trim(); Tray.SaveSettings(); };
         void UpdatePageBoxes() =>
             _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled =
-            _secClock.Enabled = _secMedia.Enabled = _secStats.Enabled = _pingHost.Enabled = _dashboard.Checked;
+            _secHome.Enabled = _secMedia.Enabled = _secStats.Enabled = _pingHost.Enabled = _dashboard.Checked;
         UpdatePageBoxes();
         _dashboard.CheckedChanged += (_, _) =>
         {

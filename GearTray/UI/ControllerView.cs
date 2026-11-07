@@ -57,8 +57,8 @@ internal sealed class ControllerView : Control
         Pill(g, 340, 26, 130, 18, On(PadButtons.RightShoulder), "RB", Color.SteelBlue);
 
         // sticks
-        Stick(g, 135, 110, s.Value.LeftX, s.Value.LeftY, On(PadButtons.LeftThumb), "L");
-        Stick(g, 335, 170, s.Value.RightX, s.Value.RightY, On(PadButtons.RightThumb), "R");
+        Stick(g, 135, 110, s.Value.LeftX, s.Value.LeftY, On(PadButtons.LeftThumb));
+        Stick(g, 335, 170, s.Value.RightX, s.Value.RightY, On(PadButtons.RightThumb));
 
         // d-pad
         Pill(g, 192, 140, 22, 22, On(PadButtons.DpadUp), "▲", Color.SteelBlue);
@@ -118,7 +118,7 @@ internal sealed class ControllerView : Control
         }
     }
 
-    private void Stick(Graphics g, int cx, int cy, float x, float y, bool pressed, string label)
+    private void Stick(Graphics g, int cx, int cy, float x, float y, bool pressed)
     {
         const int r = 34;
         using var ring = new Pen(SystemColors.ControlDark, 1.5f);

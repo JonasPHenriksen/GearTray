@@ -148,20 +148,13 @@ public sealed class TrayContext : ApplicationContext
         }
     }
 
-    /// <summary>Called on the screen's timer thread every second.</summary>
+    /// <summary>Called on the screen's timer thread five times a second.</summary>
     private DashboardData DashboardSnapshot()
     {
-        var h = _headset;
         var s = Settings.HeadsetScreen;
-        string? pad = _controllerConnected ? (ControllerBattery is { } c ? $"Pad {c.Percent}%" : "Pad on cable") : null;
         var game = s.ShowPcStats ? _games.RunningGame() : null; // still counts while alt-tabbed out of it
-        return new DashboardData(
-            _mouseBattery?.Percent, _mouseBattery?.Charging ?? false,
-            h is { HeadsetOnline: true } ? h.BatteryPercent : null, h?.Charging ?? false, h?.SpareBatteryPercent,
-            pad, GameModeActive, ActiveProfile?.Name,
-            game?.Name, game?.Started, s.ShowNowPlaying, s.ShowPcStats,
-            s.ClockSeconds, s.NowPlayingSeconds, s.PcStatsSeconds, game?.Pid ?? 0,
-            s.PingHost);
+        return new DashboardData(game?.Name, game?.Started, s.ShowNowPlaying, s.ShowPcStats,
+            s.ClockSeconds, s.NowPlayingSeconds, s.PcStatsSeconds, game?.Pid ?? 0, s.PingHost);
     }
 
     /// <summary>A pop-up on the base-station screen, if it's GearTray's and pop-ups are on.</summary>

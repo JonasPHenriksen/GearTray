@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.2 (2026-11-07)
+
+- The screen no longer gathers the battery, controller, game-mode and profile
+  details it stopped showing in 0.6.0 (they were collected five times a
+  second).
+- Headset tab: "Seconds per page" calls the home page "Home" instead of
+  "Clock"; the saved value carries over.
+- `--screen-preview` draws every page at a fixed time, so its pictures only
+  change when the drawing does.
+
 ## 0.6.1 (2026-11-07)
 
 - Home page rebalanced: a smaller clock (24 px, was 28) and everything else

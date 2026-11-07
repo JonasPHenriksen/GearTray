@@ -299,8 +299,7 @@ internal static class Cli
         });
     }
 
-    private static readonly Effects.DashboardData SampleDashboard = new(55, false, 75, false, 100, "Pad on cable", false, null,
-        "ELDEN RING", DateTime.Now.AddMinutes(-83));
+    private static readonly Effects.DashboardData SampleDashboard = new("ELDEN RING", DateTime.Now.AddMinutes(-83));
 
     /// <summary>
     /// Render every base-station page to PNGs (4× size) without touching the device: FILE is the home page, and
@@ -308,13 +307,13 @@ internal static class Cli
     /// </summary>
     private static int ScreenPreview(string file)
     {
-        var now = DateTime.Now;
+        var now = new DateTime(2026, 11, 7, 21, 47, 12); // fixed, so the pictures only change when the drawing does
         var media = new MediaInfo("Everlong (Acoustic Version)", "Foo Fighters", "Spotify", true, TimeSpan.FromSeconds(83), TimeSpan.FromSeconds(231), TimeSpan.FromSeconds(83));
         var noTimeline = media with { Title = "Alysa Liu wins the Olympic gold medal", Artist = "Team USA", App = "Firefox", Duration = TimeSpan.Zero, PlayingFor = TimeSpan.FromSeconds(42) };
         var stats = new PcStatsInfo(23, 18.4, 63.6, 97, 64, 9.1, 16, CpuTemp: 61, Fps: 143, FpsLow: 98, FpsAvg: 141);
         string stem = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileNameWithoutExtension(file));
         var home = new Effects.HomeData(true, 38, 12.3, 0.4, 0.66f, Effects.ServerState.On);
-        var homeTime = new DateTime(2026, 11, 7, 21, 47, 12);
+        var homeTime = now;
         // The widest of everything: 23:58:58 on "Wed 30 May" (drawn a pixel right and down by the burn-in shift),
         // "Server: Off", 118 MB/s, 100% and a full meter.
         var lateTime = new DateTime(2029, 5, 30, 23, 58, 58);
