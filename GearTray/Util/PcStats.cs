@@ -7,7 +7,7 @@ namespace GearTray.Util;
 /// driver, Fps when the game's frames can't be counted; FpsLow is the 1% low frame rate.
 /// </summary>
 public sealed record PcStatsInfo(int Cpu, double RamUsedGb, double RamTotalGb, int? Gpu, int? GpuTemp, double? VramUsedGb, double? VramTotalGb,
-    int? CpuTemp = null, int? Fps = null, int? FpsLow = null);
+    int? CpuTemp = null, int? Fps = null, int? FpsLow = null, int? FpsAvg = null);
 
 /// <summary>
 /// CPU load (GetSystemTimes, since the previous reading), memory (GlobalMemoryStatusEx) and, on NVIDIA cards, GPU

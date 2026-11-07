@@ -310,16 +310,15 @@ internal static class Cli
         var now = DateTime.Now;
         var media = new MediaInfo("Everlong (Acoustic Version)", "Foo Fighters", "Spotify", true, TimeSpan.FromSeconds(83), TimeSpan.FromSeconds(231), TimeSpan.FromSeconds(83));
         var noTimeline = media with { Title = "Alysa Liu wins the Olympic gold medal", Artist = "Team USA", App = "Firefox", Duration = TimeSpan.Zero, PlayingFor = TimeSpan.FromSeconds(42) };
-        var stats = new PcStatsInfo(23, 18.4, 63.6, 97, 64, 9.1, 16, CpuTemp: 61, Fps: 143, FpsLow: 98);
+        var stats = new PcStatsInfo(23, 18.4, 63.6, 97, 64, 9.1, 16, CpuTemp: 61, Fps: 143, FpsLow: 98, FpsAvg: 141);
         string stem = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileNameWithoutExtension(file));
         SavePreview(Effects.BaseStationScreen.Render(SampleDashboard, now), file);
         SavePreview(Effects.BaseStationScreen.RenderMedia(media, now), stem + "-media.png");
         SavePreview(Effects.BaseStationScreen.RenderMedia(noTimeline, now), stem + "-media-no-timeline.png");
         SaveGrid(
         [
-            ("PC stats", Effects.BaseStationScreen.RenderStats(SampleDashboard, stats, now)),
-            ("Worst case: GPU 100%, 240 fps", Effects.BaseStationScreen.RenderStats(SampleDashboard, stats with { Cpu = 41, Gpu = 100, Fps = 240, FpsLow = 187 }, now)),
-            ("A game whose frames can't be counted", Effects.BaseStationScreen.RenderStats(SampleDashboard, stats with { Fps = null, FpsLow = null }, now)),
+            ("PC stats", Effects.BaseStationScreen.RenderStats(Played83(1), stats, PreviewTime(1))),
+            ("No average yet (first seconds, or frames can't be counted)", Effects.BaseStationScreen.RenderStats(Played83(1), stats with { FpsAvg = null }, PreviewTime(1))),
         ], stem + "-stats.png");
         SavePreview(Effects.BaseStationScreen.RenderPopup("Game mode", "On", now), stem + "-popup.png");
         return 0;
@@ -351,6 +350,9 @@ internal static class Cli
         bmp.Save(file, System.Drawing.Imaging.ImageFormat.Png);
         Console.WriteLine($"Saved {file}");
     }
+
+    private static DateTime PreviewTime(int second) => new(2026, 11, 7, 20, 0, second);
+    private static Effects.DashboardData Played83(int second) => SampleDashboard with { GameStarted = PreviewTime(second).AddMinutes(-83) };
 
     private static void SavePreview(bool[] px, string file)
     {

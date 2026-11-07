@@ -121,8 +121,8 @@ public sealed class BaseStationScreen : IDisposable
         PcStatsInfo? stats = null;
         if (statsOn)
         {
-            var (fps, low) = FpsCounter.Read();
-            stats = PcStats.Read() with { Fps = fps, FpsLow = low };
+            var (fps, low, avg) = FpsCounter.Read();
+            stats = PcStats.Read() with { Fps = fps, FpsLow = low, FpsAvg = avg };
         }
 
         if (mediaOn)
@@ -210,7 +210,8 @@ public sealed class BaseStationScreen : IDisposable
 
     /// <summary>
     /// PC stats while a game runs: the game and how long it has been running; CPU | GPU | FPS columns with the
-    /// temperatures (or the 1% low) beside the labels and the numbers as big as their column allows; VRAM and RAM.
+    /// temperatures (or the 1% low) beside the labels and the numbers as big as their column allows; VRAM, RAM and
+    /// the average FPS under them.
     /// </summary>
     public static bool[] RenderStats(DashboardData d, PcStatsInfo s, DateTime now) => Draw(now, g =>
     {
@@ -228,14 +229,20 @@ public sealed class BaseStationScreen : IDisposable
         Column(g, small, 44, s.GpuTemp is int gt ? $"GPU {gt}°" : "GPU", s.Gpu is int gp ? gp.ToString() : "–", s.Gpu is null ? "" : "%");
         Column(g, small, 88, s.FpsLow is int low ? $"1% {low}" : "FPS", s.Fps is int fp ? fp.ToString() : "–", "");
 
-        // VRAM centred in the left half and RAM in the right half, mirrored around the middle.
-        string ram = $"RAM {s.RamUsedGb:0.0}G";
+        // Bottom line in three parts, one under each column: VRAM and RAM in GB (no unit, to fit) and the average FPS.
+        string avg = s.FpsAvg is int a ? $"avg {a}" : "avg –";
+        string ram = $"RAM {s.RamUsedGb:0.0}";
         if (s.VramUsedGb is double vram)
         {
-            g.DrawString($"VRAM {vram:0.0}G", small, Brushes.White, new RectangleF(0, 51, W / 2f, 13), centred);
-            g.DrawString(ram, small, Brushes.White, new RectangleF(W / 2f, 51, W / 2f, 13), centred);
+            g.DrawString($"VRAM {vram:0.0}", small, Brushes.White, new RectangleF(-2, 51, 48, 13), centred);
+            g.DrawString(ram, small, Brushes.White, new RectangleF(42, 51, 48, 13), centred);
+            g.DrawString(avg, small, Brushes.White, new RectangleF(86, 51, 44, 13), centred);
         }
-        else g.DrawString(ram, small, Brushes.White, new RectangleF(0, 51, W, 13), centred);
+        else
+        {
+            g.DrawString(ram, small, Brushes.White, new RectangleF(0, 51, W / 2f, 13), centred);
+            g.DrawString(avg, small, Brushes.White, new RectangleF(W / 2f, 51, W / 2f, 13), centred);
+        }
     });
 
     /// <summary>

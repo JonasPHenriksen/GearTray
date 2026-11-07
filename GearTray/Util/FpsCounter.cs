@@ -44,6 +44,8 @@ public static unsafe class FpsCounter
     private static readonly long[] Stamps = new long[4096];
     private static int _stampCount;
     private static Dictionary<uint, int>? _survey;
+    // For the average: frames and time while the game kept drawing (gaps over a second, like alt-tab, don't count).
+    private static long _activeFrames, _activeTicks, _lastStamp;
 
     /// <summary>Count frames of this process (0 = none). The trace stops after ~10 s without a process to watch.</summary>
     public static void Watch(uint pid)
@@ -65,6 +67,7 @@ public static unsafe class FpsCounter
                 {
                     _pid = pid;
                     _stampCount = 0;
+                    _activeFrames = _activeTicks = _lastStamp = 0;
                 }
             }
             if (_session == 0 && !_failed) StartLocked();
@@ -72,18 +75,19 @@ public static unsafe class FpsCounter
     }
 
     /// <summary>
-    /// Frames in the last second of the watched process's presents, and its 1% low: the frame rate of the slowest 1%
-    /// of frames (the 99th-percentile frame time) over the last 10 seconds. Null when it isn't presenting (or no trace);
-    /// Low is null until there are 100 frames to judge.
+    /// Frames in the last second of the watched process's presents; its 1% low: the frame rate of the slowest 1% of
+    /// frames (the 99th-percentile frame time) over the last 10 seconds; and its average since it was first seen, over
+    /// the time it kept drawing. Null when it isn't presenting (or no trace); Low and Avg need enough frames first.
     /// </summary>
-    public static (int? Fps, int? Low) Read()
+    public static (int? Fps, int? Low, int? Avg) Read()
     {
         lock (StampGate)
         {
-            if (_session == 0 || _stampCount == 0) return (null, null);
+            if (_session == 0 || _stampCount == 0) return (null, null, null);
             int mask = Stamps.Length - 1, oldest = Math.Max(0, _stampCount - Stamps.Length);
             long latest = Stamps[(_stampCount - 1) & mask], freq = Stopwatch.Frequency;
-            if (Stopwatch.GetTimestamp() - latest > 3 * freq) return (null, null); // nothing for 3 s: minimized, paused or not DXGI
+            if (Stopwatch.GetTimestamp() - latest > 3 * freq) return (null, null, null); // nothing for 3 s: minimized, paused or not DXGI
+            int? avg = _activeTicks >= 5 * freq ? (int)Math.Round(_activeFrames * (double)freq / _activeTicks) : null;
             int frames = 0;
             var intervals = new List<long>();
             for (int i = _stampCount - 1; i > oldest; i--)
@@ -100,7 +104,7 @@ public static unsafe class FpsCounter
                 long p99 = intervals[(int)Math.Ceiling(intervals.Count * 0.99) - 1];
                 if (p99 > 0) low = (int)Math.Round(freq / (double)p99);
             }
-            return (frames, low);
+            return (frames, low, avg);
         }
     }
 
@@ -238,8 +242,16 @@ public static unsafe class FpsCounter
                 return;
             }
             if (pid != _pid) return;
-            Stamps[_stampCount & (Stamps.Length - 1)] = *(long*)(record + 16);
+            long stamp = *(long*)(record + 16);
+            Stamps[_stampCount & (Stamps.Length - 1)] = stamp;
             _stampCount++;
+            long gap = stamp - _lastStamp;
+            if (_lastStamp != 0 && gap > 0 && gap < Stopwatch.Frequency)
+            {
+                _activeTicks += gap;
+                _activeFrames++;
+            }
+            _lastStamp = stamp;
         }
     }
 }

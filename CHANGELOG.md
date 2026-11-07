@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2 (2026-11-07)
+
+- **Average FPS** of the game, over the time it kept drawing (pauses over a
+  second, like alt-tab, don't count), in the stats page's bottom line, which
+  is now in three parts under the columns: "VRAM 9.1  RAM 18.4  avg 141".
+  Until there are 5 seconds of frames it shows "avg –".
+
 ## 0.5.1 (2026-11-07)
 
 - **CPU temperature** (Tctl) on the stats page for AMD Ryzen, through the
