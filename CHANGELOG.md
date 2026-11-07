@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 (2026-11-07)
+
+- Now playing keeps the track's position. Firefox reports an all-zero
+  timeline while a video plays and the real one only when you pause or skip,
+  so GearTray keeps the last real position and counts forward from it. Until
+  a player has reported one, the page shows how long it has been playing
+  instead of the app's name.
+- `--screen-data N` reads N times a second apart and shows the raw timeline.
+
 ## 0.4.0 (2026-11-07)
 
 - Base-station screen pages that take turns with the clock, only while they

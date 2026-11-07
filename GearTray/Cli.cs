@@ -74,7 +74,7 @@ internal static class Cli
                 case "--audio-test":
                     return AudioTest();
                 case "--screen-data":
-                    return ScreenData();
+                    return ScreenData(rest.Count > 1 ? int.Parse(rest[1]) : 1);
                 case "--xbox":
                     return XboxReport();
                 case "--xbox-light":
@@ -304,11 +304,13 @@ internal static class Cli
     private static int ScreenPreview(string file)
     {
         var now = DateTime.Now;
-        var media = new MediaInfo("Everlong (Acoustic Version)", "Foo Fighters", "Spotify", true, TimeSpan.FromSeconds(83), TimeSpan.FromSeconds(231));
+        var media = new MediaInfo("Everlong (Acoustic Version)", "Foo Fighters", "Spotify", true, TimeSpan.FromSeconds(83), TimeSpan.FromSeconds(231), TimeSpan.FromSeconds(83));
+        var noTimeline = media with { Title = "Alysa Liu wins the Olympic gold medal", Artist = "Team USA", App = "Firefox", Duration = TimeSpan.Zero, PlayingFor = TimeSpan.FromSeconds(42) };
         var stats = new PcStatsInfo(23, 18.4, 63.6, 97, 64, 9.1, 16);
         string stem = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileNameWithoutExtension(file));
         SavePreview(Effects.BaseStationScreen.Render(SampleDashboard, now), file);
         SavePreview(Effects.BaseStationScreen.RenderMedia(media, now), stem + "-media.png");
+        SavePreview(Effects.BaseStationScreen.RenderMedia(noTimeline, now), stem + "-media-no-timeline.png");
         SavePreview(Effects.BaseStationScreen.RenderStats(SampleDashboard, stats, now), stem + "-stats.png");
         SavePreview(Effects.BaseStationScreen.RenderPopup("Game mode", "On", now), stem + "-popup.png");
         return 0;
@@ -348,13 +350,17 @@ internal static class Cli
         return 0;
     }
 
-    /// <summary>What the screen's pages would show right now: the media session and PC stats.</summary>
-    private static int ScreenData()
+    /// <summary>What the screen's pages would show: the media session and PC stats, read N times a second apart.</summary>
+    private static int ScreenData(int count)
     {
         PcStats.Read();
-        Thread.Sleep(1000);
-        var m = MediaSession.Read();
-        Console.WriteLine(m is null ? "Now playing: no media session" : $"Now playing: {m}");
+        for (int i = 0; i < Math.Max(1, count); i++)
+        {
+            Thread.Sleep(1000);
+            var m = MediaSession.Read();
+            Console.WriteLine(m is null ? "Now playing: no media session" : $"Now playing: {m}");
+            if (m is not null) Console.WriteLine($"   timeline: {MediaSession.LastTimeline}");
+        }
         Console.WriteLine($"PC stats: {PcStats.Read()}");
         return 0;
     }

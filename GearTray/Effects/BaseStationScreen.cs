@@ -188,7 +188,13 @@ public sealed class BaseStationScreen : IDisposable
             int done = (int)Math.Round((W - 1) * Math.Clamp(m.Position / m.Duration, 0, 1));
             if (done > 0) g.FillRectangle(Brushes.White, 0, 58, done, 5);
         }
-        else if (m.App.Length > 0 && second != m.App) g.DrawString(m.App, small, Brushes.White, 0, 50);
+        else
+        {
+            // The player hasn't said where in the track it is (Firefox only does when you pause or skip).
+            g.DrawString("playing for " + Time(m.PlayingFor), small, Brushes.White, 0, 43);
+            if (m.App.Length > 0 && second != m.App)
+                g.DrawString(m.App, small, Brushes.White, W - g.MeasureString(m.App, small).Width + 2, 43);
+        }
     });
 
     /// <summary>PC stats while a game runs: the game and how long it's been running, CPU and GPU load, temperature, memory.</summary>

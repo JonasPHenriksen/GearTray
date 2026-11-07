@@ -3,8 +3,12 @@ using System.Runtime.InteropServices;
 
 namespace GearTray.Util;
 
-/// <summary>What's playing right now. Position is estimated forward from the player's last report while it plays.</summary>
-public sealed record MediaInfo(string Title, string Artist, string App, bool Playing, TimeSpan Position, TimeSpan Duration);
+/// <summary>
+/// What's playing right now. Position is counted forward from the player's last real report while it plays; Duration
+/// is zero until the player has reported one for this track. PlayingFor is how long it has been playing without a pause
+/// (as far as GearTray has seen), for when the position isn't known.
+/// </summary>
+public sealed record MediaInfo(string Title, string Artist, string App, bool Playing, TimeSpan Position, TimeSpan Duration, TimeSpan PlayingFor);
 
 /// <summary>
 /// The current media session from Windows' own media controls (Windows.Media.Control: Spotify, browsers, most
@@ -28,6 +32,16 @@ public static unsafe class MediaSession
     private static IntPtr _manager;
     private static DateTime _retryAt;
     private static bool _mtaKept;
+
+    /// <summary>Diagnostics: the raw timeline values of the last read, for --screen-data.</summary>
+    public static string LastTimeline { get; private set; } = "";
+
+    // The current track's last real timeline, counted forward while it plays. Firefox reports an all-zero timeline
+    // while a video plays and real values only at moments like pausing or seeking, so zeros are never trusted.
+    private static string? _track;
+    private static TimeSpan _duration, _basePosition;
+    private static DateTime _baseAt, _playingSince;
+    private static bool _wasPlaying;
 
     /// <summary>The session Windows considers current, or null when nothing has a media session (or on any failure).</summary>
     public static MediaInfo? Read()
@@ -100,29 +114,62 @@ public static unsafe class MediaSession
                 }
             }
 
-            TimeSpan position = TimeSpan.Zero, duration = TimeSpan.Zero;
+            long start = 0, end = 0, pos = 0, updated = 0;
             if (GetPtr(session, 8, out var timeline) >= 0 && timeline != IntPtr.Zero)
             {
-                // TimelineProperties slots: 6 StartTime, 7 EndTime, 10 Position (TimeSpan ticks), 11 LastUpdatedTime (FILETIME)
-                GetLong(timeline, 6, out long start);
-                GetLong(timeline, 7, out long end);
-                GetLong(timeline, 10, out long pos);
-                GetLong(timeline, 11, out long updated);
+                // TimelineProperties slots: 6 StartTime, 7 EndTime, 8/9 Min/MaxSeekTime, 10 Position (TimeSpan ticks), 11 LastUpdatedTime (FILETIME)
+                GetLong(timeline, 6, out start);
+                GetLong(timeline, 7, out end);
+                GetLong(timeline, 8, out long minSeek);
+                GetLong(timeline, 9, out long maxSeek);
+                GetLong(timeline, 10, out pos);
+                GetLong(timeline, 11, out updated);
                 Release(timeline);
-                duration = TimeSpan.FromTicks(Math.Max(0, end - start));
-                position = TimeSpan.FromTicks(Math.Max(0, pos - start));
-                if (playing && updated > 0)
-                {
-                    var since = DateTime.UtcNow - DateTime.FromFileTimeUtc(updated);
-                    if (since > TimeSpan.Zero && since < TimeSpan.FromHours(12)) position += since;
-                }
-                if (duration > TimeSpan.Zero && position > duration) position = duration;
+                LastTimeline = $"start {TimeSpan.FromTicks(start)}, end {TimeSpan.FromTicks(end)}, seek {TimeSpan.FromTicks(minSeek)}-{TimeSpan.FromTicks(maxSeek)}, " +
+                               $"position {TimeSpan.FromTicks(pos)}, updated {(updated > 0 ? DateTime.FromFileTime(updated).ToString("HH:mm:ss.fff") : "never")}";
             }
-
-            return new MediaInfo(title.Trim(), artist.Trim(), FriendlyApp(HString(session, 6)), playing, position, duration);
+            string app = FriendlyApp(HString(session, 6));
+            title = title.Trim();
+            artist = artist.Trim();
+            var (position, duration, playingFor) = Track(app + "\n" + title + "\n" + artist, playing, start, end, pos, updated);
+            return new MediaInfo(title, artist, app, playing, position, duration, playingFor);
         }
         finally { Release(session); }
     }
+
+    /// <summary>Keeps the track's last real timeline and counts it forward while playing.</summary>
+    private static (TimeSpan Position, TimeSpan Duration, TimeSpan PlayingFor) Track(string key, bool playing, long start, long end, long pos, long updated)
+    {
+        var now = DateTime.UtcNow;
+        if (key != _track)
+        {
+            _track = key;
+            _duration = _basePosition = TimeSpan.Zero;
+            _baseAt = _playingSince = now;
+            _wasPlaying = playing;
+        }
+        else if (playing != _wasPlaying)
+        {
+            // Paused or resumed: freeze the estimate, or start counting from it again.
+            _basePosition = Estimate(_wasPlaying, now);
+            _baseAt = now;
+            _wasPlaying = playing;
+            if (playing) _playingSince = now;
+        }
+        if (end > start)
+        {
+            // A real timeline: trust it, counted from the moment the player reported it.
+            _duration = TimeSpan.FromTicks(end - start);
+            _basePosition = TimeSpan.FromTicks(Math.Clamp(pos - start, 0, end - start));
+            _baseAt = updated > 0 ? DateTime.FromFileTimeUtc(updated) : now;
+            if (_baseAt > now || now - _baseAt > TimeSpan.FromHours(12)) _baseAt = now;
+        }
+        var position = Estimate(playing, now);
+        if (_duration > TimeSpan.Zero && position > _duration) position = _duration;
+        return (position, _duration, playing ? now - _playingSince : TimeSpan.Zero);
+    }
+
+    private static TimeSpan Estimate(bool playing, DateTime now) => playing ? _basePosition + (now - _baseAt) : _basePosition;
 
     /// <summary>Waits for an IAsyncOperation, returns its result (or 0) and releases the operation.</summary>
     private static IntPtr AwaitResult(IntPtr op)
