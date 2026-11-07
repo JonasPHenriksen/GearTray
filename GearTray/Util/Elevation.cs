@@ -15,6 +15,11 @@ public static class Elevation
     private static extern bool MoveFileExW(string existing, string? newName, int flags);
     private const int MOVEFILE_DELAY_UNTIL_REBOOT = 0x4;
 
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern void SHChangeNotify(int eventId, uint flags, string? item1, IntPtr item2);
+    private const int SHCNE_UPDATEITEM = 0x2000;
+    private const uint SHCNF_PATHW = 0x0005;
+
     public static bool IsAdmin
     {
         get
@@ -69,6 +74,9 @@ public static class Elevation
         }
         CreateStartMenuShortcut(InstalledExe);
         RegisterUninstallEntry();
+        // Explorer caches icons: tell it the exe and the shortcut changed, so a new icon shows at once.
+        SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, InstalledExe, IntPtr.Zero);
+        SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, StartMenuShortcut, IntPtr.Zero);
 
         string user = WindowsIdentity.GetCurrent().Name;
         string xml = $"""

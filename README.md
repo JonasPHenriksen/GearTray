@@ -195,6 +195,7 @@ whole test run).
 --install-startup / --uninstall-startup
 --uninstall                          remove GearTray (what Installed apps runs)
 --open-test PATH                     open PATH through the desktop's Explorer, as the Open buttons do with admin rights
+--write-icon FILE.ico [PREVIEW.png]  write the app icon (and a sheet of all its sizes) from the logo drawing
 --screenshot DIR                     render each settings tab to a PNG
 ```
 
@@ -217,12 +218,13 @@ setting.
 
 ```
 GearTray/
+├── GearTray.ico            the app icon, written from UI/Logo.cs by --write-icon
 ├── Program.cs              entry: tray mode, CLI, single instance
 ├── Cli.cs                  command-line mode
 ├── Hid/                    SetupAPI enumeration, overlapped HID I/O, feature reports
 ├── Devices/                one class per device, the keyboard's LED map, Xbox controllers, the device thread
 ├── Effects/                Ambient (DXGI / GDI screen sampling), audio meter, ripple, base-station screen
 ├── Input/                  keyboard hook (game mode, remaps, macros), macro player, game detection
-├── UI/                     tray icon, settings window (one file per tab), keyboard painter, controller view
+├── UI/                     tray icon, logo, settings window (one file per tab), keyboard painter, controller view
 └── Util/                   settings, log, elevation and the logon task
 ```

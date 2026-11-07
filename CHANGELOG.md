@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.1 (2026-11-07)
+
+- **App icon**: a white cog on a blue-to-violet rounded square, the shape of
+  the battery badges, in Explorer, the Start menu, Installed apps, the UAC
+  prompt, the taskbar and the window title bars (the settings window had the
+  grey "G" badge, the editors WinForms' default icon). Drawn for every size,
+  with six chunkier teeth below 24 px so small sizes stay crisp.
+- The tray shows the logo while no battery level is known, instead of the
+  grey "G".
+- The installer tells Explorer that the exe and the Start-menu shortcut
+  changed, so a new icon shows at once.
+- `--write-icon FILE.ico [PREVIEW.png]` writes `GearTray.ico` (and a sheet of
+  all its sizes) from the drawing code in `UI/Logo.cs`.
+
 ## 0.7.0 (2026-11-07)
 
 - **Installed apps**: `--install-startup` also adds GearTray to Settings >

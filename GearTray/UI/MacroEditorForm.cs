@@ -33,6 +33,7 @@ internal sealed class MacroEditorForm : Form
         Font = SystemFonts.MessageBoxFont ?? Font;
         AutoScaleMode = AutoScaleMode.Font;
         FormBorderStyle = FormBorderStyle.FixedDialog;
+        Icon = Logo.CreateIcon(); // for its taskbar button and Alt+Tab
         MaximizeBox = MinimizeBox = false;
         StartPosition = FormStartPosition.CenterParent;
         AutoSize = true;

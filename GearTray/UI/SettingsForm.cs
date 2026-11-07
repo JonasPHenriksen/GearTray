@@ -26,7 +26,7 @@ public sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(720, 780);
         MinimumSize = new Size(620, 520);
-        Icon = IconRenderer.Render(null, false);
+        Icon = Logo.CreateIcon();
 
         _general = new GeneralTab(this, tray);
         _all =
