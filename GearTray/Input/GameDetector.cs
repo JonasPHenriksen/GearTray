@@ -29,7 +29,9 @@ public sealed class GameDetector : IDisposable
 
     /// <summary>Exe name of the game in front, or null.</summary>
     public string? CurrentGame { get; private set; }
-    /// <summary>Raised on the UI thread when CurrentGame changes.</summary>
+    /// <summary>Exe name of whatever program is in front (games or not), or null.</summary>
+    public string? CurrentProgram { get; private set; }
+    /// <summary>Raised on the UI thread when CurrentGame or CurrentProgram changes.</summary>
     public event Action? Changed;
 
     public GameDetector()
@@ -56,10 +58,14 @@ public sealed class GameDetector : IDisposable
 
     private void Evaluate(IntPtr hwnd)
     {
-        string? path = ProcessPath(hwnd);
-        string? game = path is not null && IsGame(path) ? Path.GetFileName(path) : null;
-        if (string.Equals(game, CurrentGame, StringComparison.OrdinalIgnoreCase)) return;
+        string? path = ProcessPath(hwnd, out bool ownWindow);
+        if (ownWindow) return; // GearTray's own windows don't count as switching away
+        string? program = path is null ? null : Path.GetFileName(path);
+        string? game = path is not null && IsGame(path) ? program : null;
+        if (string.Equals(game, CurrentGame, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(program, CurrentProgram, StringComparison.OrdinalIgnoreCase)) return;
         CurrentGame = game;
+        CurrentProgram = program;
         Changed?.Invoke();
     }
 
@@ -72,11 +78,13 @@ public sealed class GameDetector : IDisposable
         return LibraryFolders.Any(f => path.Contains(f, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string? ProcessPath(IntPtr hwnd)
+    private static string? ProcessPath(IntPtr hwnd, out bool ownWindow)
     {
+        ownWindow = false;
         if (hwnd == IntPtr.Zero) return null;
         GetWindowThreadProcessId(hwnd, out uint pid);
-        if (pid == 0 || pid == Environment.ProcessId) return null;
+        if (pid == Environment.ProcessId) { ownWindow = true; return null; }
+        if (pid == 0) return null;
         IntPtr h = OpenProcess(0x1000 /* QUERY_LIMITED_INFORMATION */, false, pid);
         if (h == IntPtr.Zero) return null;
         try

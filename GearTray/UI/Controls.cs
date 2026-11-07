@@ -125,10 +125,14 @@ internal sealed class DeviceChangeWindow : NativeWindow, IDisposable
     private const string Caption = "GearTray device watcher";
     private const int WM_DEVICECHANGE = 0x0219, WM_POWERBROADCAST = 0x0218, PBT_POWERSETTINGCHANGE = 0x8013;
     private const int WM_SHOW_SETTINGS = 0x8000 + 0x47; // WM_APP + 0x47
+    private const int WM_EXIT = 0x8000 + 0x48;          // from an (elevated) installer replacing the exe
     private static readonly Guid GUID_CONSOLE_DISPLAY_STATE = new("6FE69556-704A-47A0-8F24-C28D936FDA47");
-    private readonly Action _onChange, _onShow;
+    private readonly Action _onChange, _onShow, _onExit;
     private readonly Action<bool> _onDisplay;
     private readonly IntPtr _powerNotify;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool ChangeWindowMessageFilterEx(IntPtr hwnd, uint msg, uint action, IntPtr changeInfo);
@@ -142,13 +146,16 @@ internal sealed class DeviceChangeWindow : NativeWindow, IDisposable
     private static extern bool UnregisterPowerSettingNotification(IntPtr handle);
 
     /// <param name="onDisplay">Called with false when the displays turn off, true when they come back.</param>
-    public DeviceChangeWindow(Action onChange, Action onShow, Action<bool> onDisplay)
+    /// <param name="onExit">Called when an installer asks this instance to exit so it can replace the exe.</param>
+    public DeviceChangeWindow(Action onChange, Action onShow, Action<bool> onDisplay, Action onExit)
     {
         _onChange = onChange;
         _onShow = onShow;
         _onDisplay = onDisplay;
+        _onExit = onExit;
         CreateHandle(new CreateParams { Caption = Caption });
-        // Let a non-elevated second launch reach this (possibly elevated) window.
+        // Let a non-elevated second launch reach this (possibly elevated) window. WM_EXIT stays blocked for
+        // non-elevated senders: only an installer running as administrator may close an elevated GearTray.
         ChangeWindowMessageFilterEx(Handle, WM_SHOW_SETTINGS, 1 /* MSGFLT_ALLOW */, IntPtr.Zero);
         _powerNotify = RegisterPowerSettingNotification(Handle, GUID_CONSOLE_DISPLAY_STATE, 0 /* window handle */);
     }
@@ -157,6 +164,7 @@ internal sealed class DeviceChangeWindow : NativeWindow, IDisposable
     {
         if (m.Msg == WM_DEVICECHANGE) _onChange();
         else if (m.Msg == WM_SHOW_SETTINGS) _onShow();
+        else if (m.Msg == WM_EXIT) _onExit();
         else if (m.Msg == WM_POWERBROADCAST && (int)m.WParam == PBT_POWERSETTINGCHANGE && m.LParam != IntPtr.Zero)
         {
             // POWERBROADCAST_SETTING: GUID, DWORD length, data (0 = off, 1 = on, 2 = dimmed)
@@ -171,6 +179,26 @@ internal sealed class DeviceChangeWindow : NativeWindow, IDisposable
     {
         var h = FindWindowW(null, Caption);
         return h != IntPtr.Zero && PostMessageW(h, WM_SHOW_SETTINGS, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    /// <summary>
+    /// Ask another running GearTray to exit (it restores the base-station screen and stops effects on the way out) and
+    /// wait for it. True when none is running any more.
+    /// </summary>
+    public static bool AskRunningInstanceToExit(int timeoutMs)
+    {
+        var h = FindWindowW(null, Caption);
+        if (h == IntPtr.Zero) return true;
+        GetWindowThreadProcessId(h, out uint pid);
+        if (pid == 0 || pid == (uint)Environment.ProcessId) return true;
+        System.Diagnostics.Process p;
+        try { p = System.Diagnostics.Process.GetProcessById((int)pid); }
+        catch (ArgumentException) { return true; }
+        using (p)
+        {
+            PostMessageW(h, WM_EXIT, IntPtr.Zero, IntPtr.Zero);
+            return p.WaitForExit(timeoutMs);
+        }
     }
 
     public void Dispose()

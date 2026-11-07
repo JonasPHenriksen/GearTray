@@ -5,8 +5,47 @@ namespace GearTray.Devices;
 
 public enum MouseLedZone : byte { Logo = 0, Wheel = 1, Underglow = 2 }
 
-/// <summary>Values are the mouse's own mode ids (Off is sent as Static at brightness 0).</summary>
-public enum MouseLightMode : byte { Static = 0, Breathing = 1, ColorCycle = 2, Rainbow = 3, Reactive = 4, Battery = 6, Off = 0xFE }
+/// <summary>Values are the mouse's own mode ids (G-Helper: "true off is actually 0xF0").</summary>
+public enum MouseLightMode : byte { Static = 0, Breathing = 1, ColorCycle = 2, Rainbow = 3, Reactive = 4, Battery = 6, Off = 0xF0 }
+
+/// <summary>What a mouse button does: a mouse function (type 1) or a key / media key (type 0), per G-Helper / libratbag.</summary>
+public sealed record MouseAction(string Name, byte Code, byte Type)
+{
+    public override string ToString() => Name;
+
+    public static readonly MouseAction[] All = BuildAll();
+
+    private static MouseAction[] BuildAll()
+    {
+        var list = new List<MouseAction>
+        {
+            new("Left click", 0xF0, 1), new("Right click", 0xF1, 1), new("Middle click (wheel)", 0xF2, 1), new("Double click", 0xE3, 1),
+            new("Back", 0xE4, 1), new("Forward", 0xE5, 1), new("DPI switch", 0xE6, 1), new("DPI target (hold for sniper DPI)", 0xE7, 1),
+            new("Scroll up", 0xE8, 1), new("Scroll down", 0xE9, 1),
+            new("Play / pause", 0xF0, 0), new("Stop", 0xF1, 0), new("Next track", 0xF2, 0), new("Previous track", 0xF3, 0),
+            new("Mute", 0xF4, 0), new("Volume down", 0xF5, 0), new("Volume up", 0xF6, 0),
+        };
+        for (int i = 0; i < 26; i++) list.Add(new($"Key {(char)('A' + i)}", (byte)(0x04 + i), 0));
+        string[] digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
+        for (int i = 0; i < 10; i++) list.Add(new($"Key {digits[i]}", (byte)(0x1E + i), 0));
+        list.AddRange([new("Key Enter", 0x28, 0), new("Key Esc", 0x29, 0), new("Key Backspace", 0x2A, 0), new("Key Tab", 0x2B, 0), new("Key Space", 0x2C, 0)]);
+        for (int i = 0; i < 12; i++) list.Add(new($"Key F{i + 1}", (byte)(0x3A + i), 0));
+        for (int i = 0; i < 12; i++) list.Add(new($"Key F{i + 13} (use as a macro trigger)", (byte)(0x68 + i), 0));
+        list.AddRange([
+            new("Key Print Screen", 0x46, 0), new("Key Insert", 0x49, 0), new("Key Home", 0x4A, 0), new("Key Page Up", 0x4B, 0),
+            new("Key Delete", 0x4C, 0), new("Key End", 0x4D, 0), new("Key Page Down", 0x4E, 0),
+            new("Key Right", 0x4F, 0), new("Key Left", 0x50, 0), new("Key Down", 0x51, 0), new("Key Up", 0x52, 0),
+            new("Key Left Ctrl", 0xE0, 0), new("Key Left Shift", 0xE1, 0), new("Key Left Alt", 0xE2, 0), new("Key Left Windows", 0xE3, 0),
+        ]);
+        return [.. list];
+    }
+
+    public static MouseAction Find(byte code, byte type) =>
+        All.FirstOrDefault(a => a.Code == code && a.Type == type) ?? new MouseAction($"Other ({type}:{code:X2})", code, type);
+}
+
+/// <summary>A physical button and the mouse function it does by default.</summary>
+public sealed record MouseButtonSlot(int Index, string Name, byte SourceCode);
 
 /// <summary>Brightness 0–100. Color is used by Static, Breathing and Reactive.</summary>
 public sealed record MouseLighting(MouseLightMode Mode, Color Color, int Brightness)
@@ -30,6 +69,12 @@ public sealed class MouseSettings
     /// <summary>Minutes of inactivity before the mouse sleeps; 0 = never.</summary>
     public int SleepMinutes { get; set; }
     public int LowBatteryWarning { get; set; }
+    /// <summary>0–9.</summary>
+    public int Acceleration { get; set; }
+    /// <summary>0–9.</summary>
+    public int Deceleration { get; set; }
+    /// <summary>Degrees, −30…+30.</summary>
+    public int AngleTuning { get; set; }
 
     public MouseSettings Clone()
     {
@@ -164,10 +209,19 @@ public sealed class RogOmniMouse : GearDevice, IHasBattery
 
         var a = Send([0x12, 0x04, 0x00], requireReply: true)!;
         for (int i = 0; i < 4; i++) s.Dpi[i] = (a[5 + 2 * i] | (a[6 + 2 * i] << 8)) * 50 + 50;
-        int pollRaw = Booster ? a[13] >> 4 : a[13];
+        int pollRaw = Booster && (a[13] >> 4) != 0 ? a[13] >> 4 : a[13];
         s.PollingHz = PollingTable[pollRaw & 0x07];
         s.DebounceMs = DebounceTable[a[15] & 0x07];
         s.AngleSnapping = a[17] == 1;
+        s.AngleTuning = (short)(a[20] << 8 | a[19]);
+
+        try
+        {
+            var acc = Send([0x12, 0x04, 0x01], requireReply: true)!;
+            s.Acceleration = Math.Clamp((int)acc[5], 0, 9);
+            s.Deceleration = Math.Clamp((int)acc[7], 0, 9);
+        }
+        catch (Exception ex) { Log.Warn($"Mouse acceleration read: {ex.Message}"); }
 
         // Mice with separate X/Y DPI keep the authoritative values in block 02 (X at 5+4i).
         try
@@ -217,8 +271,29 @@ public sealed class RogOmniMouse : GearDevice, IHasBattery
         if (want.DebounceMs != have.DebounceMs)
         {
             int code = Array.IndexOf(DebounceTable, want.DebounceMs);
-            if (code < 1) throw new ArgumentException("Button response must be 8–32 ms in steps of 4.");
+            if (code < 2) throw new ArgumentException("Button response must be 12–32 ms in steps of 4.");
             Send([0x51, 0x31, 0x05, 0x00, (byte)code]);
+            changed = true;
+        }
+        if (want.Acceleration != have.Acceleration)
+        {
+            Send([0x51, 0x31, 0x07, 0x00, (byte)Math.Clamp(want.Acceleration, 0, 9)]);
+            changed = true;
+        }
+        if (want.Deceleration != have.Deceleration)
+        {
+            Send([0x51, 0x31, 0x08, 0x00, (byte)Math.Clamp(want.Deceleration, 0, 9)]);
+            changed = true;
+        }
+        if (want.AngleTuning != have.AngleTuning)
+        {
+            short angle = (short)Math.Clamp(want.AngleTuning, -30, 30);
+            Send([0x51, 0x31, 0x0B, 0x00, (byte)(angle & 0xFF), (byte)((angle >> 8) & 0xFF)]);
+            changed = true;
+        }
+        if (want.ActiveStage != have.ActiveStage && want.ActiveStage is >= 1 and <= 4)
+        {
+            Send([0x51, 0x31, 0x09, 0x00, (byte)want.ActiveStage]); // 1-based
             changed = true;
         }
         if (want.AngleSnapping != have.AngleSnapping)
@@ -240,6 +315,78 @@ public sealed class RogOmniMouse : GearDevice, IHasBattery
             changed = true;
         }
         if (changed) Send([0x50, 0x03]);
+    }
+
+    // ---------- onboard profiles ----------
+
+    /// <summary>Onboard profile in use, 1-based.</summary>
+    public int GetProfile() => Send([0x12, 0x00], requireReply: true)![11] + 1;
+
+    /// <summary>
+    /// Switch the mouse to onboard profile 1–5 (sent 0-based). Not saved: the mouse goes back to its saved profile after a
+    /// power cycle, which suits program profiles. Every setting read afterwards belongs to the new profile.
+    /// </summary>
+    public void SwitchProfile(int oneBased)
+    {
+        if (oneBased is < 1 or > 5) throw new ArgumentOutOfRangeException(nameof(oneBased), "Profiles are 1–5");
+        Send([0x50, 0x02, (byte)(oneBased - 1)]);
+    }
+
+    /// <summary>Switch profile and keep it as the one the mouse starts with.</summary>
+    public void SwitchProfileAndSave(int oneBased)
+    {
+        SwitchProfile(oneBased);
+        Send([0x50, 0x03]);
+    }
+
+    // ---------- buttons ----------
+
+    /// <summary>The buttons this kind of mouse has, in the order the mouse stores them (G-Helper / libratbag).</summary>
+    public static readonly MouseButtonSlot[] ButtonSlots =
+    [
+        new(0, "Left button", 0xF0), new(1, "Right button", 0xF1), new(2, "Wheel click", 0xF2), new(3, "Back (side)", 0xE4),
+        new(4, "Forward (side)", 0xE5), new(5, "DPI button", 0xE6), new(6, "Scroll up", 0xE8), new(7, "Scroll down", 0xE9),
+    ];
+
+    /// <summary>What each button does now, for the current onboard profile.</summary>
+    public MouseAction[] ReadButtons()
+    {
+        var r = Send([0x12, 0x05, 0x00, 0x00, 0x00], requireReply: true)!;
+        var result = new MouseAction[ButtonSlots.Length];
+        for (int i = 0; i < ButtonSlots.Length; i++)
+        {
+            int o = 5 + i * 2;
+            result[i] = o + 1 < r.Length ? MouseAction.Find(r[o], r[o + 1]) : MouseAction.Find(ButtonSlots[i].SourceCode, 1);
+        }
+        return result;
+    }
+
+    /// <summary>Change buttons (the left button can't be changed, so a click always works), then save once.</summary>
+    public void WriteButtons(IReadOnlyDictionary<int, MouseAction> changes)
+    {
+        bool any = false;
+        foreach (var (slot, action) in changes)
+        {
+            if (slot == 0) continue; // never remap the left button
+            var src = ButtonSlots[slot];
+            Send([0x51, 0x21, 0x00, 0x00, src.SourceCode, 0x01, action.Code, action.Type]);
+            any = true;
+        }
+        if (any) Send([0x50, 0x03]);
+    }
+
+    /// <summary>Every button back to what it does out of the box.</summary>
+    public void RestoreDefaultButtons()
+    {
+        foreach (var s in ButtonSlots) Send([0x51, 0x21, 0x00, 0x00, s.SourceCode, 0x01, s.SourceCode, 0x01]);
+        Send([0x50, 0x03]);
+    }
+
+    /// <summary>The mouse's serial number (03 12 12 02 → 12 ASCII characters at [5]).</summary>
+    public string ReadSerial()
+    {
+        var r = Send([0x12, 0x12, 0x02], requireReply: true)!;
+        return System.Text.Encoding.ASCII.GetString(r, 5, Math.Min(12, r.Length - 5)).TrimEnd('\0', ' ');
     }
 
     // ---------- lighting ----------
@@ -267,20 +414,21 @@ public sealed class RogOmniMouse : GearDevice, IHasBattery
     public MouseLighting ReadCurrentLighting()
     {
         var z = ReadLighting()[0];
-        var mode = z.Brightness == 0 ? MouseLightMode.Off
+        // Modes above 6 (G-Helper sends 0xF0) and brightness 0 both mean the light is off.
+        var mode = z.Mode > 6 || z.Brightness == 0 ? MouseLightMode.Off
             : Enum.IsDefined(typeof(MouseLightMode), z.Mode) ? (MouseLightMode)z.Mode : MouseLightMode.Static;
-        return new MouseLighting(mode, z.Color, z.Brightness == 0 ? 100 : z.Brightness);
+        return new MouseLighting(mode, z.Color, z.Brightness is 0 or > 100 ? 100 : z.Brightness);
     }
 
     /// <summary>persist = save to the mouse's onboard memory.</summary>
     public void ApplyLighting(MouseLighting l, bool persist)
     {
         var model = Model ?? throw new NotSupportedException("Unknown mouse model, so its lighting zones are unknown.");
-        byte mode = l.Mode == MouseLightMode.Off ? (byte)MouseLightMode.Static : (byte)l.Mode;
+        byte mode = (byte)l.Mode; // Off is its own mode, 0xF0
         byte brightness = l.Mode == MouseLightMode.Off ? (byte)0 : (byte)Math.Clamp(l.Brightness, 1, 100);
         var c = l.Color;
         foreach (var zone in model.Zones)
-            Send([0x51, 0x28, (byte)zone, 0x00, mode, brightness, c.R, c.G, c.B, 0x00, 0x00, 0x07]);
+            Send([0x51, 0x28, (byte)zone, 0x00, mode, brightness, c.R, c.G, c.B, 0x00, 0x00, 0x00]);
         if (persist) Send([0x50, 0x03]);
     }
 

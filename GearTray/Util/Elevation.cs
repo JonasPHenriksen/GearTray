@@ -50,6 +50,7 @@ public static class Elevation
         if (!string.Equals(Path.GetFullPath(ExePath), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase))
         {
             Directory.CreateDirectory(InstallDir);
+            if (!UI.DeviceChangeWindow.AskRunningInstanceToExit(10_000)) Log.Warn("The running GearTray didn't exit when asked");
             try { File.Copy(ExePath, InstalledExe, overwrite: true); }
             catch (IOException ex) { throw new IOException("Couldn't update GearTray in Program Files. Exit the running GearTray first.", ex); }
         }

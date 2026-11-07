@@ -11,30 +11,18 @@ public sealed record KeyRemap(int From, int To)
 }
 
 /// <summary>
-/// Low-level keyboard hook on its own thread: blocks keys while game mode is on and applies remaps
-/// (remapped keys are re-sent as scan codes, like AutoHotkey). Only installed while something needs it.
+/// Low-level keyboard hook on its own thread: blocks keys while game mode is on, applies remaps, starts macros and
+/// records new macros. Keys GearTray sends itself are marked and passed through. Only installed while needed.
 /// Works for every keyboard, not just the Razer.
 /// </summary>
 public sealed unsafe class KeyboardHook : IDisposable
 {
     private const int WH_KEYBOARD_LL = 13, WM_KEYUP = 0x101, WM_SYSKEYUP = 0x105, WM_QUIT = 0x12;
     private const uint LLKHF_ALTDOWN = 0x20;
-    private const int VK_TAB = 0x09, VK_F4 = 0x73, VK_LWIN = 0x5B, VK_RWIN = 0x5C;
-    private static readonly IntPtr Marker = 0x4754_4B42; // "GTKB": marks keys we sent ourselves
+    private const int VK_TAB = 0x09, VK_F4 = 0x73, VK_LWIN = 0x5B, VK_RWIN = 0x5C, VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct KBDLLHOOKSTRUCT { public uint vkCode, scanCode, flags, time; public IntPtr dwExtraInfo; }
-
-    [StructLayout(LayoutKind.Explicit, Size = 40)]
-    private struct INPUT
-    {
-        [FieldOffset(0)] public int type;
-        [FieldOffset(8)] public ushort wVk;
-        [FieldOffset(10)] public ushort wScan;
-        [FieldOffset(12)] public uint dwFlags;
-        [FieldOffset(16)] public uint time;
-        [FieldOffset(24)] public IntPtr dwExtraInfo;
-    }
 
     private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetWindowsHookExW(int id, HookProc proc, IntPtr module, uint threadId);
@@ -42,8 +30,7 @@ public sealed unsafe class KeyboardHook : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern int GetMessageW(byte* msg, IntPtr hwnd, uint min, uint max);
     [DllImport("user32.dll")] private static extern bool PostThreadMessageW(uint threadId, uint msg, IntPtr w, IntPtr l);
-    [DllImport("user32.dll")] private static extern uint SendInput(uint count, INPUT* inputs, int size);
-    [DllImport("user32.dll")] private static extern uint MapVirtualKeyW(uint code, uint mapType);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandleW(string? name);
 
@@ -52,17 +39,50 @@ public sealed unsafe class KeyboardHook : IDisposable
     private uint _threadId;
     private volatile bool _gameMode, _blockWin, _blockAltTab, _blockAltF4;
     private volatile Dictionary<int, int> _remaps = [];
+    private volatile Macro[] _macros = [];
+    private readonly HashSet<int> _swallowUp = [];
+    private volatile Action<int, bool>? _recorder;
+
+    /// <summary>
+    /// Raised on the hook thread for every real key event while WantKeyEvents is set (the ripple effect):
+    /// virtual key, scan code, extended flag, released.
+    /// </summary>
+    public event Action<int, int, bool, bool>? KeyEvent;
+    private volatile bool _wantKeyEvents;
 
     public KeyboardHook() => _proc = Proc;
 
-    public void Configure(bool gameMode, bool blockWin, bool blockAltTab, bool blockAltF4, IEnumerable<KeyRemap> remaps)
+    public void Configure(bool gameMode, bool blockWin, bool blockAltTab, bool blockAltF4, IEnumerable<KeyRemap> remaps, IEnumerable<Macro> macros)
     {
         _gameMode = gameMode;
         _blockWin = blockWin;
         _blockAltTab = blockAltTab;
         _blockAltF4 = blockAltF4;
         _remaps = remaps.Where(r => r.From != 0).GroupBy(r => r.From).ToDictionary(g => g.Key, g => g.Last().To);
-        bool needed = (gameMode && (blockWin || blockAltTab || blockAltF4)) || _remaps.Count > 0;
+        _macros = macros.Where(m => m.Enabled && m.TriggerVk != 0 && (m.Steps.Count > 0 || !string.IsNullOrEmpty(m.Text))).ToArray();
+        UpdateRunning();
+    }
+
+    /// <summary>Key events for effects (e.g. ripple). Keeps the hook installed while true.</summary>
+    public bool WantKeyEvents { get => _wantKeyEvents; set { _wantKeyEvents = value; UpdateRunning(); } }
+
+    /// <summary>While recording, every key goes to the recorder and nowhere else. Stop with StopRecording.</summary>
+    public void StartRecording(Action<int, bool> recorder)
+    {
+        _recorder = recorder;
+        UpdateRunning();
+    }
+
+    public void StopRecording()
+    {
+        _recorder = null;
+        UpdateRunning();
+    }
+
+    private void UpdateRunning()
+    {
+        bool needed = (_gameMode && (_blockWin || _blockAltTab || _blockAltF4)) || _remaps.Count > 0 || _macros.Length > 0
+                      || _recorder is not null || _wantKeyEvents;
         if (needed && _thread is null) Start();
         else if (!needed && _thread is not null) Stop();
     }
@@ -88,20 +108,27 @@ public sealed unsafe class KeyboardHook : IDisposable
     private void Stop()
     {
         if (_thread is null) return;
-        PostThreadMessageW(_threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        for (int i = 0; i < 20 && !PostThreadMessageW(_threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero); i++) Thread.Sleep(10);
         _thread.Join(2000);
         _thread = null;
         Log.Info("Keyboard hook off");
     }
+
+    private static bool Down(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
 
     private IntPtr Proc(int code, IntPtr wParam, IntPtr lParam)
     {
         if (code >= 0)
         {
             var k = (KBDLLHOOKSTRUCT*)lParam;
-            if (k->dwExtraInfo != Marker)
+            if (k->dwExtraInfo != MacroPlayer.Marker)
             {
                 int vk = (int)k->vkCode;
+                bool up = wParam == WM_KEYUP || wParam == WM_SYSKEYUP;
+
+                if (_recorder is { } rec) { rec(vk, up); return 1; }
+                if (_wantKeyEvents) KeyEvent?.Invoke(vk, (int)k->scanCode, (k->flags & 0x01) != 0, up);
+
                 if (_gameMode)
                 {
                     bool alt = (k->flags & LLKHF_ALTDOWN) != 0;
@@ -109,28 +136,27 @@ public sealed unsafe class KeyboardHook : IDisposable
                     if (_blockAltTab && alt && vk == VK_TAB) return 1;
                     if (_blockAltF4 && alt && vk == VK_F4) return 1;
                 }
+
+                if (up && _swallowUp.Remove(vk)) return 1; // release of a macro trigger
+                if (!up)
+                {
+                    foreach (var m in _macros)
+                    {
+                        if (m.TriggerVk != vk || m.Ctrl != Down(VK_CONTROL) || m.Shift != Down(VK_SHIFT) || m.Alt != Down(VK_MENU)) continue;
+                        _swallowUp.Add(vk);
+                        MacroPlayer.Play(m);
+                        return 1;
+                    }
+                }
+
                 if (_remaps.TryGetValue(vk, out int to))
                 {
-                    if (to != 0) Send(to, up: wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
+                    if (to != 0) MacroPlayer.Key(to, up);
                     return 1;
                 }
             }
         }
         return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
-    }
-
-    private static void Send(int vk, bool up)
-    {
-        uint scan = MapVirtualKeyW((uint)vk, 4 /* MAPVK_VK_TO_VSC_EX */);
-        var input = new INPUT
-        {
-            type = 1, // keyboard
-            wScan = (ushort)(scan & 0xFF),
-            dwFlags = 0x8 /* SCANCODE */ | (up ? 0x2u /* KEYUP */ : 0) | ((scan & 0xFF00) == 0xE000 ? 0x1u /* EXTENDED */ : 0),
-            dwExtraInfo = Marker,
-        };
-        if (scan == 0) { input.wVk = (ushort)vk; input.dwFlags &= ~0x8u; } // no scan code (e.g. media keys): send the key code
-        SendInput(1, &input, sizeof(INPUT));
     }
 
     public void Dispose() => Stop();

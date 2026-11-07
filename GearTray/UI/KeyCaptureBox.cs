@@ -25,6 +25,12 @@ internal sealed class KeyCaptureBox : TextBox
         Text = "click here, press a key";
     }
 
+    public void SetKey(int vk)
+    {
+        Vk = vk;
+        Text = KeyNames.Name(vk);
+    }
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if (msg.Msg is WM_KEYDOWN or WM_SYSKEYDOWN)

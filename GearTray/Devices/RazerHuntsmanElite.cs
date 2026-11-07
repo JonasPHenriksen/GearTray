@@ -8,13 +8,14 @@ namespace GearTray.Devices;
 /// Keyboard effects. The first group runs inside the keyboard; Ambient and AudioMeter are drawn by GearTray
 /// and streamed to the keyboard frame by frame (they only run while GearTray is running).
 /// </summary>
-public enum KeyboardEffect { Off, Static, Breathing, BreathingRandom, Spectrum, Wave, Reactive, Starlight, StarlightRandom, Ambient, AudioMeter }
+public enum KeyboardEffect { Off, Static, Breathing, BreathingRandom, Spectrum, Wave, Reactive, Starlight, StarlightRandom, Ambient, AudioMeter, Custom, Ripple }
 
 /// <summary>Keyboard lighting. Color is used by Static, Breathing, Reactive, Starlight and the audio meter's underglow. Speed 1 (fast) – 3 (slow).</summary>
 public sealed record KeyboardLighting(KeyboardEffect Effect, Color Color, int Brightness, bool WaveRightToLeft = false, int Speed = 2)
 {
-    public static readonly KeyboardEffect[] UsesColor = [KeyboardEffect.Static, KeyboardEffect.Breathing, KeyboardEffect.Reactive, KeyboardEffect.Starlight, KeyboardEffect.AudioMeter];
-    public bool IsSoftware => Effect is KeyboardEffect.Ambient or KeyboardEffect.AudioMeter;
+    public static readonly KeyboardEffect[] UsesColor = [KeyboardEffect.Static, KeyboardEffect.Breathing, KeyboardEffect.Reactive, KeyboardEffect.Starlight, KeyboardEffect.AudioMeter, KeyboardEffect.Ripple];
+    /// <summary>Effects GearTray draws itself and streams to the keyboard (Custom is a single frame).</summary>
+    public bool IsSoftware => Effect is KeyboardEffect.Ambient or KeyboardEffect.AudioMeter or KeyboardEffect.Ripple or KeyboardEffect.Custom;
 }
 
 /// <summary>
@@ -52,10 +53,20 @@ public sealed class RazerHuntsmanElite : GearDevice
             return;
         }
         var fw = Query(0x00, 0x81, 0x02, [], TxStandard);
-        Detail = $"firmware v{fw[9]}.{fw[10]}";
+        Layout = GetLayout();
+        var effects = GetSupportedEffects();
+        HardwareRipple = effects.Contains(0x06);
+        Detail = $"firmware v{fw[9]}.{fw[10]}" + (Layout != 0 ? $", {HuntsmanLayout.LayoutName(Layout)} layout" : "");
+        Log.Info($"Razer effects reported by firmware: {(effects.Count == 0 ? "none listed" : string.Join(" ", effects.Select(e => e.ToString("X2"))))}");
         Problem = null;
         Connected = true;
     }
+
+    /// <summary>Physical layout id reported by the keyboard (0 = unknown).</summary>
+    public int Layout { get; private set; }
+    public bool IsIso => HuntsmanLayout.IsIso(Layout);
+    /// <summary>The firmware has its own ripple effect.</summary>
+    public bool HardwareRipple { get; private set; }
 
     public override void Detach()
     {
@@ -122,6 +133,36 @@ public sealed class RazerHuntsmanElite : GearDevice
 
     /// <summary>Call when a software effect stops, so the next one re-sends brightness.</summary>
     public void EndFrames() => _customModeShown = false;
+
+    // ---------- layout and capabilities ----------
+
+    /// <summary>The keyboard's physical layout id (1 = US, 3 = German, 6 = UK, 7 = Nordic…), or 0 if unknown.</summary>
+    public int GetLayout()
+    {
+        try { return Query(0x00, 0x86, 0x02, [], TxStandard)[9]; }
+        catch (Exception ex) when (ex is NotSupportedException or TimeoutException or IOException) { return 0; }
+    }
+
+    /// <summary>Effect ids the firmware reports (0x0F/0x81 on LED 0x05), e.g. 06 = ripple; empty if it doesn't say.</summary>
+    public IReadOnlyList<int> GetSupportedEffects()
+    {
+        try
+        {
+            var r = Query(0x0F, 0x81, 0x50, [BacklightLed]);
+            var ids = new List<int>();
+            for (int i = 10; i < 89; i++)
+                if (r[i] != 0 && !ids.Contains(r[i])) ids.Add(r[i]);
+            return ids;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or TimeoutException or IOException) { return []; }
+    }
+
+    /// <summary>The firmware's own ripple (effect 06), as OpenRGB sends it.</summary>
+    public void ApplyHardwareRipple(Color c, int brightness, bool persist)
+    {
+        Effect(persist ? VarStore : NoStore, 0x09, 0x06, 0x00, 0x1E, 0x01, c.R, c.G, c.B);
+        SetBrightness(brightness, persist);
+    }
 
     // ---------- polling rate ----------
 

@@ -34,6 +34,15 @@ public sealed unsafe class HidConnection : IDisposable
         return new HidConnection(info, h, true);
     }
 
+    /// <summary>Open read/write without overlapped I/O, for feature reports on vendor collections.</summary>
+    public static HidConnection OpenSync(HidDeviceInfo info)
+    {
+        var h = Native.CreateFileW(info.Path, Native.GENERIC_READ | Native.GENERIC_WRITE,
+            Native.FILE_SHARE_READ | Native.FILE_SHARE_WRITE, IntPtr.Zero, Native.OPEN_EXISTING, 0, IntPtr.Zero);
+        if (h.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), $"Cannot open {info.Product} MI_{info.Interface:D2} COL{info.Collection:D2}");
+        return new HidConnection(info, h, false);
+    }
+
     /// <summary>Open with zero access: enough for feature reports on system-owned keyboard/mouse collections.</summary>
     public static HidConnection OpenFeatureOnly(HidDeviceInfo info)
     {

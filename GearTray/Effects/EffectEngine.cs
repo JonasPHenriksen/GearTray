@@ -25,13 +25,16 @@ public sealed class EffectEngine : IDisposable
     public string Status { get; private set; } = "not running";
     public bool Running => _thread is { IsAlive: true };
 
-    public void Start(KeyboardLighting look, AmbientOptions ambient)
+    public void Start(KeyboardLighting look, AmbientOptions ambient, Util.KeyboardLightingSettings? settings = null)
     {
         Stop();
         _stop = false;
+        _settings = settings;
         _thread = new Thread(() => Run(look, ambient)) { IsBackground = true, Name = "GearTray keyboard effect", Priority = ThreadPriority.BelowNormal };
         _thread.Start();
     }
+
+    private Util.KeyboardLightingSettings? _settings;
 
     public void Stop()
     {
@@ -58,6 +61,11 @@ public sealed class EffectEngine : IDisposable
                 fps = sampler is DesktopDuplicationSampler ? 20 : 8;
                 Status = $"Ambient: {sampler.Method}, {fps} updates/s, monitor {screen.DeviceName.TrimStart('\\', '.')}";
             }
+            else if (look.Effect == KeyboardEffect.Ripple)
+            {
+                fps = 30;
+                Status = "Ripple: waves from the keys you press";
+            }
             else
             {
                 meter = new AudioMeter();
@@ -65,6 +73,8 @@ public sealed class EffectEngine : IDisposable
                 Status = "Audio meter: following the default playback device";
             }
             Log.Info($"Keyboard effect started. {Status}");
+            var background = _settings is null ? Color.Black : Util.ColorUtil.Parse(_settings.Color2);
+            var ripples = new List<(int Row, int Col, long StartMs)>();
 
             var grid = new byte[Cols * KeyRows * 3];
             var target = new float[Rows * Cols * 3];
@@ -81,6 +91,13 @@ public sealed class EffectEngine : IDisposable
                 if (sampler is not null)
                 {
                     if (sampler.Sample(grid, Cols, KeyRows)) BuildAmbient(grid, target, opt);
+                }
+                else if (look.Effect == KeyboardEffect.Ripple)
+                {
+                    long now = clock.ElapsedMilliseconds;
+                    while (_presses.TryDequeue(out var p)) ripples.Add((p.Row, p.Col, now));
+                    ripples.RemoveAll(r => now - r.StartMs > RippleLifeMs);
+                    BuildRipple(target, ripples, now, look.Color, background);
                 }
                 else
                 {
@@ -131,6 +148,40 @@ public sealed class EffectEngine : IDisposable
             }
             finally { Volatile.Write(ref _inFlight, 0); }
         });
+    }
+
+    // ---------- ripple ----------
+
+    private const int RippleLifeMs = 1100;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(int Row, int Col)> _presses = new();
+
+    /// <summary>A key at this matrix position was pressed (called from the keyboard hook thread).</summary>
+    public void KeyPressed(int row, int col)
+    {
+        if (_presses.Count < 64) _presses.Enqueue((row, col));
+    }
+
+    /// <summary>Rings that spread from each pressed key at ~16 keys per second and fade out; the underglow follows the front row.</summary>
+    private static void BuildRipple(float[] target, List<(int Row, int Col, long StartMs)> ripples, long now, Color wave, Color background)
+    {
+        for (int row = 0; row < Rows; row++)
+            for (int col = 0; col < Cols; col++)
+            {
+                float k = 0;
+                int r = row < KeyRows ? row : KeyRows - 1; // underglow: as if it were the front row
+                foreach (var p in ripples)
+                {
+                    float age = (now - p.StartMs) / 1000f;
+                    float radius = age * 16f;
+                    float d = MathF.Sqrt((col - p.Col) * (col - p.Col) + (r - p.Row) * (r - p.Row) * 1.4f);
+                    float ring = Math.Max(0, 1 - MathF.Abs(d - radius) / 1.6f) * (1 - age * 1000f / RippleLifeMs);
+                    k = Math.Max(k, ring);
+                }
+                int t = (row * Cols + col) * 3;
+                target[t] = background.R + (wave.R - background.R) * k;
+                target[t + 1] = background.G + (wave.G - background.G) * k;
+                target[t + 2] = background.B + (wave.B - background.B) * k;
+            }
     }
 
     // ---------- ambient ----------

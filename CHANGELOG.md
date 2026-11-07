@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.3.0 (2026-11-07)
+
+- **Hide what you don't use.** Every settings block has a "hide" link, and the
+  General tab lists all tabs and blocks with checkboxes to show them again.
+  Hidden blocks also leave the tray menu.
+- **Xbox controller** tab (no driver or app needed):
+  - connection, model, battery (low-battery warning, tray icon option) and
+    firmware version;
+  - live button / stick / trigger test, stick-drift check;
+  - rumble test for the main motors and the impulse triggers;
+  - **Xbox button light**: pattern and brightness, set again whenever the
+    controller connects (USB cable or Xbox Wireless Adapter);
+  - turning a wireless controller off.
+  - Vibration is always stopped when the tab is left or GearTray exits.
+- **Programs** tab: program profiles. While a listed program is in front,
+  GearTray switches keyboard lighting, game mode, the mouse's onboard profile
+  and/or the headset EQ preset, and switches back afterwards.
+- Keyboard:
+  - **per-key colors**, painted on a picture of the keyboard with the key
+    names of your Windows layout, including underglow and wrist rest;
+  - **Ripple** (the firmware's own if it has one, otherwise drawn by GearTray);
+  - **macros** (recorded key presses with timing, or text), on any trigger key
+    with Ctrl/Shift/Alt;
+  - the keyboard's layout (US/ISO) is read from the keyboard itself.
+- Mouse:
+  - acceleration and deceleration, angle tuning;
+  - the 5 onboard profiles, and the DPI stage in use;
+  - **button remapping** (8 buttons; the left button always stays left
+    click), restore defaults;
+  - serial number.
+  - Lighting "Off" now uses the mouse's own off mode.
+  - Button response limited to 12–32 ms, as G-Helper does for this model.
+- Headset:
+  - volume, headphone gain, line-out mode and stream mix;
+  - Bluetooth on at power-up and call behaviour, Bluetooth status;
+  - wireless mode (speed/range), screen dim timer, home screen;
+  - all 19 EQ presets, firmware versions.
+  - **GearTray's own base-station screen**: clock, date and every battery,
+    with burn-in protection; it steps aside when a knob is turned and gives
+    the screen back when switched off.
+- Settings window split into one file per tab, with a fixed Apply/Reload bar.
+- `--install-startup` asks a running GearTray to exit before replacing it.
+
 ## 0.2.0 (2026-11-07)
 
 - Keyboard: **Ambient** effect. The keys follow the screen (or the whole

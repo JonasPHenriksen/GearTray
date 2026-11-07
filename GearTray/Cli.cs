@@ -17,6 +17,9 @@ namespace GearTray;
 ///   --kb-gamemode on|off
 ///   --headset key=value ...                   noise=off|transparency|anc, transparency=1-10, sidetone=0-3, mic=1-10,
 ///                                             micled=1-10, autooff=MIN, oled=1-10, eq=0-4, eqbands=dB,dB,…(10)
+///   --xbox                                    Xbox controllers: XInput state, ids, battery, GIP devices and firmware
+///   --xbox-light MODE [0-47]                  MODE = off|on|blinkfast|blinkslow|fadeslow|fadefast
+///   --xbox-light-test                         brightest, very dim, slow fade, then Windows' level again
 ///   --install-startup / --uninstall-startup   (must run elevated)
 /// Global: --trace (log every HID report), --out FILE. Several commands can be chained with ";;".
 /// </summary>
@@ -24,7 +27,8 @@ internal static class Cli
 {
     public static readonly string[] Commands =
         ["--probe", "--list-hid", "--mouse", "--mouse-light", "--kb-light", "--kb-gamemode", "--headset", "--install-startup", "--uninstall-startup",
-         "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling"];
+         "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling", "--screen-preview", "--screen-test",
+         "--mouse-button-test", "--kb-keys-test", "--xbox", "--xbox-light", "--xbox-light-test"];
 
     /// <summary>Runs one command, or several separated by ";;" (one elevation prompt for a whole test sequence).</summary>
     public static int Run(string[] args)
@@ -65,8 +69,16 @@ internal static class Cli
                     return 0;
                 case "--sample-test":
                     return SampleTest();
+                case "--screen-preview":
+                    return ScreenPreview(rest[1]);
                 case "--audio-test":
                     return AudioTest();
+                case "--xbox":
+                    return XboxReport();
+                case "--xbox-light":
+                    return XboxLight(rest);
+                case "--xbox-light-test":
+                    return XboxLightTest();
             }
 
             using var mgr = CreateManager();
@@ -87,6 +99,9 @@ internal static class Cli
                 "--kb-polling" => mgr.Run(() => { Console.WriteLine($"Keyboard polling rate: {Keyboard(mgr).GetPollingRate()?.ToString() ?? "not supported"}"); return 0; }),
                 "--kb-frame-test" => FrameTest(mgr, rest.Count > 1 ? int.Parse(rest[1]) : 4),
                 "--kb-effect-test" => EffectTest(mgr, rest),
+                "--screen-test" => ScreenTest(mgr, rest.Count > 1 ? int.Parse(rest[1]) : 6),
+                "--mouse-button-test" => MouseButtonTest(mgr),
+                "--kb-keys-test" => KeysTest(mgr, rest.Count > 1 ? int.Parse(rest[1]) : 8),
                 _ => Usage(),
             };
         }
@@ -103,6 +118,54 @@ internal static class Cli
     {
         Console.WriteLine("Unknown command. See the comment at the top of Cli.cs.");
         return 2;
+    }
+
+    private static int XboxReport()
+    {
+        var pnp = PnpDevices.XboxDevices();
+        Console.WriteLine($"Windows devices: {(pnp.Count > 0 ? string.Join(" · ", pnp) : "none")}");
+        foreach (int s in XInput.ConnectedSlots())
+        {
+            string ids = XInput.GetIds(s) is (var vid, var pid) ? $"{vid:X4}:{pid:X4}" : "n/a";
+            Console.WriteLine($"XInput slot {s}: {XInput.Describe(s)}; ids {ids}; battery {XInput.GetBattery(s)}");
+            Console.WriteLine($"   state {XInput.GetState(s)}");
+        }
+        var gip = XboxGip.Devices(fresh: true);
+        Console.WriteLine(gip.Count == 0 ? "XboxGIP: no devices" : "XboxGIP devices:");
+        foreach (var d in gip) Console.WriteLine($"   {d}  {PnpDevices.XboxModel(d.ProductId)}");
+        return 0;
+    }
+
+    private static int XboxLight(List<string> rest)
+    {
+        var mode = rest.Count > 1 ? Enum.Parse<XboxLedMode>(rest[1], ignoreCase: true) : XboxLedMode.On;
+        int level = rest.Count > 2 ? int.Parse(rest[2], CultureInfo.InvariantCulture) : XboxGip.DefaultBrightness;
+        int n = XboxGip.SetLight(mode, level);
+        Console.WriteLine(n < 0 ? "XboxGIP isn't available." : $"Xbox button {mode} {level}: {n} controller(s) took it.");
+        return n > 0 ? 0 : 1;
+    }
+
+    /// <summary>Brightest, very dim, slow fade, then Windows' own level again, 3 s each, for watching the Xbox button.</summary>
+    private static int XboxLightTest()
+    {
+        foreach (var d in XboxGip.Devices(fresh: true)) Console.WriteLine($"GIP device {d}");
+        (XboxLedMode Mode, int Level, string Text)[] steps =
+        [
+            (XboxLedMode.On, XboxGip.MaxBrightness, "brightest"),
+            (XboxLedMode.On, 2, "very dim"),
+            (XboxLedMode.FadeSlow, XboxGip.MaxBrightness, "slow fade"),
+            (XboxLedMode.On, XboxGip.DefaultBrightness, "Windows' level again"),
+        ];
+        int result = 0;
+        for (int i = 0; i < steps.Length; i++)
+        {
+            var (mode, level, text) = steps[i];
+            int n = XboxGip.SetLight(mode, level);
+            Console.WriteLine($"Xbox button: {text} ({mode} {level}) -> {(n < 0 ? "no XboxGIP driver" : $"{n} controller(s)")}");
+            if (n <= 0) result = 1;
+            if (i < steps.Length - 1) Thread.Sleep(3000);
+        }
+        return result;
     }
 
     private static RazerHuntsmanElite Keyboard(DeviceManager m) =>
@@ -201,6 +264,81 @@ internal static class Cli
         });
     }
 
+    private static readonly Effects.DashboardData SampleDashboard = new(55, false, 75, false, 100, "Pad on cable", false, null);
+
+    /// <summary>Render the base-station dashboard to a PNG (4× size), without touching the device.</summary>
+    private static int ScreenPreview(string file)
+    {
+        var px = Effects.BaseStationScreen.Render(SampleDashboard, DateTime.Now);
+        const int s = 4;
+        using var bmp = new Bitmap(ArctisNovaProWireless.ScreenWidth * s, ArctisNovaProWireless.ScreenHeight * s);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.Clear(Color.FromArgb(20, 20, 20));
+            for (int y = 0; y < ArctisNovaProWireless.ScreenHeight; y++)
+                for (int x = 0; x < ArctisNovaProWireless.ScreenWidth; x++)
+                    if (px[x + y * ArctisNovaProWireless.ScreenWidth]) g.FillRectangle(Brushes.White, x * s, y * s, s - 1, s - 1);
+        }
+        bmp.Save(file, System.Drawing.Imaging.ImageFormat.Png);
+        Console.WriteLine($"Saved {file}");
+        return 0;
+    }
+
+    /// <summary>Show the dashboard on the real base station for N seconds, then hand the screen back.</summary>
+    private static int ScreenTest(DeviceManager mgr, int seconds)
+    {
+        var h = mgr.Get<ArctisNovaProWireless>() is { Connected: true } hh ? hh : throw new InvalidOperationException("Base station not connected");
+        if (!h.CanDrawScreen) throw new NotSupportedException("No screen channel");
+        var until = DateTime.UtcNow.AddSeconds(seconds);
+        try
+        {
+            while (DateTime.UtcNow < until)
+            {
+                var frame = Effects.BaseStationScreen.Render(SampleDashboard, DateTime.Now);
+                mgr.Run(() => { h.DrawScreen(frame); return 0; });
+                Thread.Sleep(1000);
+            }
+        }
+        finally { mgr.Run(() => { h.RestoreScreen(); return 0; }); }
+        Console.WriteLine("Base station screen test done; normal screen restored.");
+        return 0;
+    }
+
+    /// <summary>Re-bind the wheel click to Back, read it back, then restore it to middle click and read again.</summary>
+    private static int MouseButtonTest(DeviceManager mgr)
+    {
+        var m = Mouse(mgr);
+        return mgr.Run(() =>
+        {
+            Console.WriteLine("Before:  " + string.Join(", ", m.ReadButtons().Select(a => a.Name)));
+            m.WriteButtons(new Dictionary<int, MouseAction> { [2] = MouseAction.All.First(a => a.Name == "Back") });
+            Console.WriteLine("Changed: " + string.Join(", ", m.ReadButtons().Select(a => a.Name)));
+            m.WriteButtons(new Dictionary<int, MouseAction> { [2] = MouseAction.All.First(a => a.Name.StartsWith("Middle click")) });
+            Console.WriteLine("Restored:" + string.Join(", ", m.ReadButtons().Select(a => a.Name)));
+            return 0;
+        });
+    }
+
+    /// <summary>Light W, A, S, D green, the arrow keys blue, Esc red, the underglow's left half yellow — to check the key map.</summary>
+    private static int KeysTest(DeviceManager mgr, int seconds)
+    {
+        var kb = Keyboard(mgr);
+        const int cols = RazerHuntsmanElite.MatrixCols;
+        var frame = new byte[RazerHuntsmanElite.MatrixRows * cols * 3];
+        void Set(int row, int col, Color c) { int o = (row * cols + col) * 3; frame[o] = c.R; frame[o + 1] = c.G; frame[o + 2] = c.B; }
+        foreach (int sc in new[] { 0x11, 0x1E, 0x1F, 0x20 }) // W A S D
+            if (HuntsmanLayout.Locate(0, sc, false, kb.IsIso) is var (r, c)) Set(r, c, Color.Lime);
+        foreach (int sc in new[] { 0x48, 0x4B, 0x50, 0x4D }) // arrows
+            if (HuntsmanLayout.Locate(0, sc, true, kb.IsIso) is var (r, c)) Set(r, c, Color.Blue);
+        Set(0, 1, Color.Red);
+        foreach (var cell in HuntsmanLayout.Cells.Where(x => x.IsUnderglow && x.Col < 10)) Set(cell.Row, cell.Col, Color.Yellow);
+        Console.WriteLine($"Keyboard layout: {HuntsmanLayout.LayoutName(kb.Layout)} ({(kb.IsIso ? "ISO" : "ANSI")}), firmware ripple: {kb.HardwareRipple}");
+        mgr.Run(() => { kb.SendFrame(frame); return 0; });
+        Console.WriteLine("Showing: W A S D green, arrows blue, Esc red, left part of the underglow yellow.");
+        Thread.Sleep(seconds * 1000);
+        return 0;
+    }
+
     /// <summary>Screen sampler check (no device needed): which method, how fast, what color.</summary>
     private static int SampleTest()
     {
@@ -293,8 +431,24 @@ internal static class Cli
     {
         var effect = Enum.Parse<KeyboardEffect>(a[1], ignoreCase: true);
         int seconds = a.Count > 2 ? int.Parse(a[2]) : 8;
-        Keyboard(mgr);
+        var kb = Keyboard(mgr);
         using var engine = new Effects.EffectEngine(mgr);
+        using var hook = new Input.KeyboardHook();
+        if (effect == KeyboardEffect.Ripple)
+        {
+            if (kb.HardwareRipple)
+            {
+                mgr.Run(() => { kb.ApplyHardwareRipple(Color.DeepSkyBlue, 100, persist: false); return 0; });
+                Console.WriteLine("Firmware ripple on: type something.");
+                Thread.Sleep(seconds * 1000);
+                return 0;
+            }
+            hook.KeyEvent += (vk, scan, ext, up) =>
+            {
+                if (!up && HuntsmanLayout.Locate(vk, scan, ext, kb.IsIso) is var (r, c)) engine.KeyPressed(r, c);
+            };
+            hook.WantKeyEvents = true;
+        }
         engine.Start(new KeyboardLighting(effect, Color.DeepSkyBlue, 100), new Effects.AmbientOptions(null, true, 40));
         Thread.Sleep(1500);
         Console.WriteLine($"Effect running: {engine.Status}");
@@ -333,13 +487,18 @@ internal static class Cli
                     case "lod": want.LiftOffHigh = v == "high"; break;
                     case "sleep": want.SleepMinutes = int.Parse(v); break;
                     case "lowbatt": want.LowBatteryWarning = int.Parse(v); break;
+                    case "accel": want.Acceleration = int.Parse(v); break;
+                    case "decel": want.Deceleration = int.Parse(v); break;
+                    case "angletune": want.AngleTuning = int.Parse(v); break;
+                    case "stage": want.ActiveStage = int.Parse(v); break;
                     default: throw new ArgumentException("unknown mouse key " + k);
                 }
             }
             m.ApplySettings(want, have);
             var now = m.ReadSettings();
-            Console.WriteLine($"Mouse now: DPI {string.Join("/", now.Dpi)}, polling {now.PollingHz} Hz, button response {now.DebounceMs} ms, " +
-                              $"angle snapping {now.AngleSnapping}, lift-off {(now.LiftOffHigh ? "high" : "low")}, sleep {now.SleepMinutes} min, low-batt {now.LowBatteryWarning}%");
+            Console.WriteLine($"Mouse now: DPI {string.Join("/", now.Dpi)}, stage {now.ActiveStage}, polling {now.PollingHz} Hz, button response {now.DebounceMs} ms, " +
+                              $"angle snapping {now.AngleSnapping}, angle tuning {now.AngleTuning}, accel {now.Acceleration}, decel {now.Deceleration}, " +
+                              $"lift-off {(now.LiftOffHigh ? "high" : "low")}, sleep {now.SleepMinutes} min, low-batt {now.LowBatteryWarning}%");
             return 0;
         });
     }
