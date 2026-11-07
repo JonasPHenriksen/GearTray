@@ -126,6 +126,7 @@ whole test run).
 --kb-frame-test SECONDS              scrolling rainbow, per key
 --kb-keys-test SECONDS               W A S D green, arrows blue, Esc red, left underglow yellow
 --kb-effect-test ambient|audiometer|ripple SECONDS
+--kb-exit-test                       from a pink frame to static green, then to Wave (leaving per-key mode)
 --headset noise=anc sidetone=1 ...   noise, transparency, sidetone, mic, micled, autooff, oled, eq, eqbands
 --screen-test SECONDS                GearTray's dashboard on the base-station screen, then the screen back
 --screen-preview FILE.png            the dashboard as a picture (no device needed)

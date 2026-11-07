@@ -237,6 +237,7 @@ public sealed class TrayContext : ApplicationContext
         {
             _effects.Stop();
             bool keep = persist && ActiveProfile is null;
+            Log.Info($"Keyboard lighting: the keyboard's own ripple{(keep ? ", saved in the keyboard" : "")}");
             try { await Devices.RunAsync(() => kb.ApplyHardwareRipple(look.Color, look.Brightness, keep)); }
             catch (Exception ex) { Log.Error("Keyboard ripple", ex); }
             return;
@@ -245,6 +246,7 @@ public sealed class TrayContext : ApplicationContext
         {
             // Per-key colors: one frame, kept by the keyboard until something else is sent.
             _effects.Stop();
+            Log.Info("Keyboard lighting: per-key colors");
             var frame = Scale(cfg.CustomFrame(), look.Brightness);
             try { await Devices.RunAsync(() => kb.SendFrame(frame)); }
             catch (Exception ex) { Log.Error("Keyboard per-key colors", ex); }
@@ -257,6 +259,7 @@ public sealed class TrayContext : ApplicationContext
         }
         _effects.Stop();
         bool store = persist && ActiveProfile is null && (!dark || Settings.LightsOff);
+        Log.Info($"Keyboard lighting: {look.Effect}" + (look.Effect == KeyboardEffect.Off ? "" : $", {look.Brightness}%") + (store ? ", saved in the keyboard" : ""));
         try { await Devices.RunAsync(() => kb.Apply(look, store)); }
         catch (Exception ex) { Log.Error("Keyboard lighting", ex); }
     }

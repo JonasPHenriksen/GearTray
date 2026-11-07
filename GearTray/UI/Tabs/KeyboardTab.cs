@@ -175,7 +175,18 @@ internal sealed class KeyboardTab : SettingsTab
     private void Preview()
     {
         if (Ui.Value<KeyboardEffect>(_effect) != KeyboardEffect.Custom || Keyboard is null) return;
+        _previewShown = true;
         Tray.PreviewKeyboardFrame(_painter.Frame(), _brightness.Value);
+    }
+
+    private bool _previewShown;
+
+    /// <summary>Leaving the tab (or closing the window) without Apply puts the saved lighting back after a preview.</summary>
+    public override void Deactivated()
+    {
+        if (!_previewShown) return;
+        _previewShown = false;
+        Tray.ApplyKeyboardLook(persist: false);
     }
 
     private void UpdateGameModeStatus()
@@ -272,6 +283,7 @@ internal sealed class KeyboardTab : SettingsTab
         f.Remaps = _remaps.Items.Cast<KeyRemap>().ToList();
         f.Macros = _macros.Items.Cast<Macro>().ToList();
         Tray.SaveSettings();
+        _previewShown = false;
         Tray.ApplyKeyboardLook(persist: true);
         Tray.ApplyInputFeatures();
         Status("Saved.");

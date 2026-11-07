@@ -28,7 +28,7 @@ internal static class Cli
     public static readonly string[] Commands =
         ["--probe", "--list-hid", "--mouse", "--mouse-light", "--kb-light", "--kb-gamemode", "--headset", "--install-startup", "--uninstall-startup",
          "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling", "--screen-preview", "--screen-test",
-         "--mouse-button-test", "--kb-keys-test", "--xbox", "--xbox-light", "--xbox-light-test"];
+         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--xbox", "--xbox-light", "--xbox-light-test"];
 
     /// <summary>Runs one command, or several separated by ";;" (one elevation prompt for a whole test sequence).</summary>
     public static int Run(string[] args)
@@ -102,6 +102,7 @@ internal static class Cli
                 "--screen-test" => ScreenTest(mgr, rest.Count > 1 ? int.Parse(rest[1]) : 6),
                 "--mouse-button-test" => MouseButtonTest(mgr),
                 "--kb-keys-test" => KeysTest(mgr, rest.Count > 1 ? int.Parse(rest[1]) : 8),
+                "--kb-exit-test" => ExitFramesTest(mgr),
                 _ => Usage(),
             };
         }
@@ -119,6 +120,33 @@ internal static class Cli
         Console.WriteLine("Unknown command. See the comment at the top of Cli.cs.");
         return 2;
     }
+
+    /// <summary>
+    /// Leaving per-key frame mode through GearTray's own Apply: from an all-pink frame to green (the startup path, live
+    /// only), then from pink to Wave (the settings window's path, live and stored). Whoever watches sees which worked.
+    /// </summary>
+    private static int ExitFramesTest(DeviceManager mgr) => mgr.Run(() =>
+    {
+        var kb = Keyboard(mgr);
+        var pink = Enumerable.Range(0, RazerHuntsmanElite.MatrixRows * RazerHuntsmanElite.MatrixCols)
+            .SelectMany(_ => new byte[] { 255, 0, 150 }).ToArray();
+        Console.WriteLine($"Active onboard profile: {kb.ActiveProfile()}");
+        (string Name, Action Try)[] tries =
+        [
+            ("GREEN: Apply static green, live only", () => kb.Apply(new KeyboardLighting(KeyboardEffect.Static, Color.Lime, 100), persist: false)),
+            ("WAVE: Apply wave left to right, live and saved", () => kb.Apply(new KeyboardLighting(KeyboardEffect.Wave, Color.White, 100), persist: true)),
+        ];
+        foreach (var (name, attempt) in tries)
+        {
+            kb.SendFrame(pink);
+            Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff} pink frame");
+            Thread.Sleep(2500);
+            attempt();
+            Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff} {name}");
+            Thread.Sleep(4000);
+        }
+        return 0;
+    });
 
     private static int XboxReport()
     {

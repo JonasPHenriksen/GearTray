@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.1 (2026-11-07)
+
+- Fixed: switching the keyboard from one of GearTray's effects (Ambient, Audio
+  meter, Ripple, per-key colors) to one of the keyboard's own (Wave, Spectrum,
+  Static…) left the last frame frozen on the keys. Found by testing on the
+  Huntsman Elite, three things were behind it:
+  - effects saved to a profile don't show over per-key frames, so they are
+    now sent live first;
+  - a brightness command right after an effect undoes it, so it waits 300 ms;
+  - Wave needs direction 1 or 2; the keyboard ignores 0, which OpenRazer
+    sends for this model.
+- Effects are saved to the keyboard's active onboard profile, read from the
+  keyboard (class 05 / id 84), instead of always profile 1, where they were
+  stored but never shown when another profile was active. The Keyboard tab
+  shows which profile is in use.
+- A per-key preview is undone when you leave the Keyboard tab or close the
+  window without pressing Apply.
+- Every keyboard lighting change is written to the log.
+
 ## 0.3.0 (2026-11-07)
 
 - **Hide what you don't use.** Every settings block has a "hide" link, and the

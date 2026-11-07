@@ -56,7 +56,8 @@ public sealed class RazerHuntsmanElite : GearDevice
         Layout = GetLayout();
         var effects = GetSupportedEffects();
         HardwareRipple = effects.Contains(0x06);
-        Detail = $"firmware v{fw[9]}.{fw[10]}" + (Layout != 0 ? $", {HuntsmanLayout.LayoutName(Layout)} layout" : "");
+        byte profile = ActiveProfile();
+        Detail = $"firmware v{fw[9]}.{fw[10]}" + (Layout != 0 ? $", {HuntsmanLayout.LayoutName(Layout)} layout" : "") + $", onboard profile {profile}";
         Log.Info($"Razer effects reported by firmware: {(effects.Count == 0 ? "none listed" : string.Join(" ", effects.Select(e => e.ToString("X2"))))}");
         Problem = null;
         Connected = true;
@@ -77,26 +78,66 @@ public sealed class RazerHuntsmanElite : GearDevice
 
     // ---------- lighting ----------
 
-    /// <summary>persist = store in the keyboard (user changes); false = live only (re-applying at startup).</summary>
+    /// <summary>Wait between a live effect and the next command (see Apply).</summary>
+    private const int EffectSettleMs = 300;
+
+    /// <summary>
+    /// The onboard profile in use (1–5), as the keyboard reports it (class 05 / id 84, the query OpenRazer uses for the
+    /// Huntsman V3 Pro). The storage byte of an effect command addresses a profile, so an effect saved to profile 1
+    /// while another one is active is stored but never shown. Falls back to profile 1 if the keyboard doesn't answer.
+    /// </summary>
+    public byte ActiveProfile()
+    {
+        try
+        {
+            byte p = Query(0x05, 0x84, 0x01, [0x00], TxMatrix)[9];
+            return p is >= 1 and <= 5 ? p : VarStore;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or TimeoutException or IOException) { return VarStore; }
+    }
+
+    /// <summary>
+    /// persist = also save it in the keyboard (user changes); false = live only (re-applying at startup).
+    /// Found by testing on this keyboard after streaming per-key frames: the keys show the live layer (storage 0x00);
+    /// an effect saved only to a profile stays hidden behind the last frame; a brightness command right after an effect
+    /// undoes it, while one 300 ms later is fine. So: live effect, pause, live brightness, pause, then the saved copy in
+    /// the active profile, which the keyboard shows when GearTray isn't running.
+    /// </summary>
     public void Apply(KeyboardLighting l, bool persist)
     {
-        byte store = persist ? VarStore : NoStore;
+        if (!ApplyEffect(l, NoStore)) return; // software effects are streamed with SendFrame
+        bool lit = l.Effect != KeyboardEffect.Off;
+        if (lit)
+        {
+            Thread.Sleep(EffectSettleMs);
+            SetBrightnessOn(NoStore, l.Brightness);
+        }
+        if (!persist) return;
+        byte profile = ActiveProfile();
+        Thread.Sleep(EffectSettleMs);
+        ApplyEffect(l, profile);
+        if (lit) SetBrightnessOn(profile, l.Brightness);
+    }
+
+    /// <summary>Sends the effect command for one layer; false for effects the keyboard doesn't run itself.</summary>
+    private bool ApplyEffect(KeyboardLighting l, byte store)
+    {
         var c = l.Color;
         int speed = Math.Clamp(l.Speed, 1, 3);
         switch (l.Effect)
         {
-            case KeyboardEffect.Off: Effect(store, 0x06, 0x00); return; // "none" turns the LEDs off
-            case KeyboardEffect.Static: Effect(store, 0x09, 0x01, 0x00, 0x00, 0x01, c.R, c.G, c.B); break;
-            case KeyboardEffect.Breathing: Effect(store, 0x09, 0x02, 0x01, 0x00, 0x01, c.R, c.G, c.B); break;
-            case KeyboardEffect.BreathingRandom: Effect(store, 0x06, 0x02); break;
-            case KeyboardEffect.Spectrum: Effect(store, 0x06, 0x03); break;
-            case KeyboardEffect.Wave: Effect(store, 0x06, 0x04, (byte)(l.WaveRightToLeft ? 0x01 : 0x00), 0x28); break;
-            case KeyboardEffect.Reactive: Effect(store, 0x09, 0x05, 0x00, (byte)speed, 0x01, c.R, c.G, c.B); break;
-            case KeyboardEffect.Starlight: Effect(store, 0x09, 0x07, 0x00, (byte)speed, 0x01, c.R, c.G, c.B); break;
-            case KeyboardEffect.StarlightRandom: Effect(store, 0x06, 0x07, 0x00, (byte)speed); break;
-            default: return; // software effects are streamed with SendFrame
+            case KeyboardEffect.Off: Effect(store, 0x06, 0x00); return true; // "none" turns the LEDs off
+            case KeyboardEffect.Static: Effect(store, 0x09, 0x01, 0x00, 0x00, 0x01, c.R, c.G, c.B); return true;
+            case KeyboardEffect.Breathing: Effect(store, 0x09, 0x02, 0x01, 0x00, 0x01, c.R, c.G, c.B); return true;
+            case KeyboardEffect.BreathingRandom: Effect(store, 0x06, 0x02); return true;
+            case KeyboardEffect.Spectrum: Effect(store, 0x06, 0x03); return true;
+            // Direction 1 or 2: this keyboard ignores 0 (which OpenRazer sends for it) and keeps the old picture.
+            case KeyboardEffect.Wave: Effect(store, 0x06, 0x04, (byte)(l.WaveRightToLeft ? 0x02 : 0x01), 0x28); return true;
+            case KeyboardEffect.Reactive: Effect(store, 0x09, 0x05, 0x00, (byte)speed, 0x01, c.R, c.G, c.B); return true;
+            case KeyboardEffect.Starlight: Effect(store, 0x09, 0x07, 0x00, (byte)speed, 0x01, c.R, c.G, c.B); return true;
+            case KeyboardEffect.StarlightRandom: Effect(store, 0x06, 0x07, 0x00, (byte)speed); return true;
+            default: return false;
         }
-        SetBrightness(l.Brightness, persist);
     }
 
     // ---------- per-key frames (software effects) ----------
@@ -160,8 +201,15 @@ public sealed class RazerHuntsmanElite : GearDevice
     /// <summary>The firmware's own ripple (effect 06), as OpenRGB sends it.</summary>
     public void ApplyHardwareRipple(Color c, int brightness, bool persist)
     {
-        Effect(persist ? VarStore : NoStore, 0x09, 0x06, 0x00, 0x1E, 0x01, c.R, c.G, c.B);
-        SetBrightness(brightness, persist);
+        // Same order as Apply: live effect, pause, live brightness, pause, saved copy in the active profile.
+        Effect(NoStore, 0x09, 0x06, 0x00, 0x1E, 0x01, c.R, c.G, c.B);
+        Thread.Sleep(EffectSettleMs);
+        SetBrightnessOn(NoStore, brightness);
+        if (!persist) return;
+        byte profile = ActiveProfile();
+        Thread.Sleep(EffectSettleMs);
+        Effect(profile, 0x09, 0x06, 0x00, 0x1E, 0x01, c.R, c.G, c.B);
+        SetBrightnessOn(profile, brightness);
     }
 
     // ---------- polling rate ----------
@@ -191,15 +239,20 @@ public sealed class RazerHuntsmanElite : GearDevice
         Query(0x00, 0x05, 0x01, [p.Code], TxStandard);
     }
 
+    /// <summary>Brightness of the live layer, and of the active profile too when persist is set.</summary>
     public void SetBrightness(int percent, bool persist)
     {
-        byte value = (byte)Math.Round(Math.Clamp(percent, 0, 100) * 255 / 100.0);
-        Query(0x0F, 0x04, 0x03, [persist ? VarStore : NoStore, BacklightLed, value]);
+        SetBrightnessOn(NoStore, percent);
+        if (persist) SetBrightnessOn(ActiveProfile(), percent);
     }
 
+    private void SetBrightnessOn(byte storage, int percent) =>
+        Query(0x0F, 0x04, 0x03, [storage, BacklightLed, (byte)Math.Round(Math.Clamp(percent, 0, 100) * 255 / 100.0)]);
+
+    /// <summary>The brightness saved in the active profile.</summary>
     public int GetBrightness()
     {
-        var r = Query(0x0F, 0x84, 0x03, [VarStore, BacklightLed]);
+        var r = Query(0x0F, 0x84, 0x03, [ActiveProfile(), BacklightLed]);
         return (int)Math.Round(r[11] * 100 / 255.0);
     }
 
@@ -217,7 +270,7 @@ public sealed class RazerHuntsmanElite : GearDevice
 
     // ---------- protocol ----------
 
-    /// <summary>Extended-matrix effect: args = [storage, LED 0x05, effectId, rest...].</summary>
+    /// <summary>Extended-matrix effect: args = [storage (0 = live, 1–5 = profile), LED 0x05, effectId, rest...].</summary>
     private void Effect(byte storage, byte size, byte effectId, params byte[] rest)
     {
         var args = new byte[3 + rest.Length];
