@@ -12,57 +12,87 @@ public sealed partial class BaseStationScreen
     // Segoe MDL2 Assets glyphs (part of Windows 10 and 11).
     private const string IconHeadset = "", IconDown = "", IconUp = "";
 
+    /// <summary>Text in one font, drawn after a gap; the pieces of a line share one baseline.</summary>
+    private readonly record struct Piece(Font Font, string Text, float Gap = 0);
+
     /// <summary>
-    /// The home page: a big clock with seconds; the date, short with "Server: On/Off" beside it (each centred in its half,
-    /// like the speeds below) or in full when no server is set; download and upload speed; and the headset row: a short
-    /// volume bar with its percentage and a live sound meter beside it, or "Headset off" with a crossed-out headset.
+    /// The home page: a clock with seconds; the date, short with "Server: On/Off" beside it (each centred in its half,
+    /// like the speeds below) or in full when no server is set; download and upload speed; and the headset row: a volume
+    /// bar with its percentage and a live sound meter beside it, or "Headset off" with a crossed-out headset. The clock
+    /// is 24 px and everything else 11 px semibold, on baselines 14 px apart.
     /// </summary>
     public static bool[] RenderHome(HomeData h, DateTime now) => Draw(now, g =>
     {
-        using var small = new Font("Segoe UI", 10f, GraphicsUnit.Pixel);
-        using var icons = new Font("Segoe MDL2 Assets", 11f, GraphicsUnit.Pixel);
-        using var clock = new Font("Segoe UI Semibold", 28f, GraphicsUnit.Pixel);
-        using var centre = new StringFormat { Alignment = StringAlignment.Center };
+        using var text = new Font("Segoe UI Semibold", 11f, GraphicsUnit.Pixel);
+        using var icons = new Font("Segoe MDL2 Assets", 12f, GraphicsUnit.Pixel);
+        using var clock = new Font("Segoe UI Semibold", 24f, GraphicsUnit.Pixel);
+        var format = StringFormat.GenericTypographic;
+        const float space = 3; // between a number and its unit, and after "Server:"
 
+        // Baselines: the clock's, then three rows 14 pixels apart.
+        const float clockBase = 19, row2 = 31, row3 = 45, row4 = 59;
         // The clock, centred; its digits sit in even cells, so the ticking seconds don't make it shift sideways.
         string time = now.ToString("HH:mm:ss");
-        Tabular(g, clock, time, (W - Tabular(g, clock, time)) / 2, -7);
+        Tabular(g, clock, time, (W - Tabular(g, clock, time)) / 2, clockBase - Ascent(clock));
 
-        string? server = h.Server switch
+        if (h.Server == ServerState.NotSet)
         {
-            ServerState.On => "Server: On",
-            ServerState.Off => "Server: Off",
-            ServerState.Checking => "Server: …",
-            _ => null,
-        };
-        if (server is null)
-            g.DrawString(now.ToString("dddd d MMMM"), small, Brushes.White, new RectangleF(0, 24, W, 13), centre);
+            string date = now.ToString("dddd d MMMM");
+            if (Pieces(g, 0, 0, false, new Piece(text, date)) > W - 4) date = now.ToString("dddd d MMM"); // "Wednesday 30 Sep"
+            Centred(g, 0, W, row2, new Piece(text, date));
+        }
         else
         {
-            g.DrawString(now.ToString("ddd d MMM"), small, Brushes.White, new RectangleF(0, 24, W / 2f, 13), centre);
-            g.DrawString(server, small, Brushes.White, new RectangleF(W / 2f, 24, W / 2f, 13), centre);
+            Centred(g, 0, W / 2f, row2, new Piece(text, now.ToString("ddd d MMM")));
+            string state = h.Server switch { ServerState.On => "On", ServerState.Off => "Off", _ => "…" };
+            Centred(g, W / 2f, W / 2f, row2, new Piece(text, "Server:"), new Piece(text, state, space));
         }
 
         // Download centred in the left half, upload in the right half.
-        NetHalf(g, small, icons, IconDown, h.DownMBps, 0, 38);
-        NetHalf(g, small, icons, IconUp, h.UpMBps, W / 2f, 38);
+        NetHalf(g, icons, text, space, IconDown, h.DownMBps, 0, row3);
+        NetHalf(g, icons, text, space, IconUp, h.UpMBps, W / 2f, row3);
 
-        const float y2 = 51;
-        g.DrawString(IconHeadset, icons, Brushes.White, 0, y2 + 2);
+        // The headset row; the volume bar and the meter are as tall as the capitals.
+        float iconTop = IconTop(row4, text);
+        g.DrawString(IconHeadset, icons, Brushes.White, 0, iconTop, format);
         if (!h.HeadsetOn)
         {
-            g.DrawLine(Pens.White, 1, y2 + 13, 11, y2 + 3);
-            g.DrawString("Headset off", small, Brushes.White, 15, y2);
+            g.DrawLine(Pens.White, 1, iconTop + 11, 11, iconTop + 1);
+            Pieces(g, 16, row4, true, new Piece(text, "Headset off"));
             return;
         }
-        const float barX = 15, barW = 34;
-        g.DrawRectangle(Pens.White, barX, y2 + 3, barW, 6);
-        if (h.Volume is int vol && vol > 0) g.FillRectangle(Brushes.White, barX + 1, y2 + 4, (barW - 1) * Math.Clamp(vol, 0, 100) / 100f, 5);
-        g.DrawString(h.Volume is int v ? $"{v}%" : "–", small, Brushes.White, barX + barW + 2, y2);
-        // The meter starts after room for "100%", so the widest value never runs into it.
-        float meterX = barX + barW + 2 + g.MeasureString("100%", small).Width;
-        SoundMeter(g, meterX, y2 + 3, W - meterX, 7, h.SoundLevel);
+        const float barX = 16, barW = 30, barH = 8, barTop = row4 - barH;
+        g.DrawRectangle(Pens.White, barX, barTop, barW, barH - 1);
+        if (h.Volume is int vol && vol > 0)
+            g.FillRectangle(Brushes.White, barX + 1, barTop + 1, (barW - 1) * Math.Clamp(vol, 0, 100) / 100f, barH - 2);
+        const float percentX = barX + barW + 3;
+        if (h.Volume is int v) Pieces(g, percentX, row4, true, new Piece(text, v.ToString()), new Piece(text, "%"));
+        else Pieces(g, percentX, row4, true, new Piece(text, "–"));
+        // The meter starts after room for "100%", so the widest value never runs into it, and ends 2 px in like the text.
+        float meterX = percentX + Pieces(g, 0, 0, false, new Piece(text, "100"), new Piece(text, "%")) + 3;
+        SoundMeter(g, meterX, barTop, W - 2 - meterX, barH, h.SoundLevel);
     });
+
+    /// <summary>Draws the pieces left to right on one baseline from x (or, with draw false, only measures them); returns the width.</summary>
+    private static float Pieces(Graphics g, float x, float baseline, bool draw, params Piece[] pieces)
+    {
+        var format = StringFormat.GenericTypographic;
+        float at = x;
+        foreach (var p in pieces)
+        {
+            at += p.Gap;
+            if (draw) g.DrawString(p.Text, p.Font, Brushes.White, at, baseline - Ascent(p.Font), format);
+            at += g.MeasureString(p.Text, p.Font, PointF.Empty, format).Width;
+        }
+        return at - x;
+    }
+
+    /// <summary>The pieces centred together in the span from left, on the baseline.</summary>
+    private static void Centred(Graphics g, float left, float width, float baseline, params Piece[] pieces) =>
+        Pieces(g, left + (width - Pieces(g, 0, 0, false, pieces)) / 2, baseline, true, pieces);
+
+    /// <summary>Where a 12 px icon's top goes so it's centred on the capitals of text in this font on this baseline.</summary>
+    private static float IconTop(float baseline, Font font) => baseline - 0.35f * font.Size - 6;
 
     /// <summary>
     /// Text with every digit in a cell as wide as the widest digit (Segoe UI's "1" is narrower), so a ticking clock
@@ -87,15 +117,15 @@ public sealed partial class BaseStationScreen
 
     private static string Speed(double? mbps) => mbps is double v ? (v >= 10 ? $"{v:0}" : $"{v:0.0}") : "–";
 
-    /// <summary>An arrow and "12 MB/s", centred together in the half that starts at x.</summary>
-    private static void NetHalf(Graphics g, Font small, Font icons, string arrow, double? mbps, float x, float y)
+    /// <summary>An arrow and the speed with its unit, centred together in the half that starts at left.</summary>
+    private static void NetHalf(Graphics g, Font icons, Font text, float space, string arrow, double? mbps, float left, float baseline)
     {
-        string text = $"{Speed(mbps)} MB/s";
-        const float arrowWidth = 11;
-        float width = arrowWidth + g.MeasureString(text, small).Width;
-        float start = x + (W / 2f - width) / 2;
-        g.DrawString(arrow, icons, Brushes.White, start, y + 2);
-        g.DrawString(text, small, Brushes.White, start + arrowWidth, y);
+        // The arrow's ink is 7 px wide inside its 12 px box (2.5 px empty on its left); count the ink and a 3 px gap.
+        const float arrowLead = 2.5f, arrowWidth = 7 + 3;
+        var pieces = new[] { new Piece(text, Speed(mbps)), new Piece(text, "MB/s", space) };
+        float x = left + (W / 2f - arrowWidth - Pieces(g, 0, 0, false, pieces)) / 2;
+        g.DrawString(arrow, icons, Brushes.White, x - arrowLead, IconTop(baseline, text), StringFormat.GenericTypographic);
+        Pieces(g, x + arrowWidth, baseline, true, pieces);
     }
 
     /// <summary>Segments that light up with the sound level (0–1), with a faint track where they're dark.</summary>

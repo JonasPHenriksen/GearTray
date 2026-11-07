@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.1 (2026-11-07)
+
+- Home page rebalanced: a smaller clock (24 px, was 28) and everything else
+  bigger and bolder (11 px semibold, was 10 px regular), with bigger arrows
+  and headset icon, a taller volume bar and sound meter, and the rows evenly
+  spaced. The meter now ends 2 px from the edge, like the text.
+- Without a server to ping, a date too long for its line ("Wednesday 30
+  September") shortens the month.
+
 ## 0.6.0 (2026-11-07)
 
 - **New home page** on the base-station screen instead of the battery list

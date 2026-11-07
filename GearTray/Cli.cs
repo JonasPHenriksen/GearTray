@@ -315,19 +315,23 @@ internal static class Cli
         string stem = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileNameWithoutExtension(file));
         var home = new Effects.HomeData(true, 38, 12.3, 0.4, 0.66f, Effects.ServerState.On);
         var homeTime = new DateTime(2026, 11, 7, 21, 47, 12);
-        // 23:58:58: the widest time, drawn a pixel right and down (burn-in shift), the worst case for the edges.
-        var lateTime = new DateTime(2026, 11, 7, 23, 58, 58);
-        var off = home with { Server = Effects.ServerState.Off };
+        // The widest of everything: 23:58:58 on "Wed 30 May" (drawn a pixel right and down by the burn-in shift),
+        // "Server: Off", 118 MB/s, 100% and a full meter.
+        var lateTime = new DateTime(2029, 5, 30, 23, 58, 58);
+        var widest = home with { Server = Effects.ServerState.Off, Volume = 100, DownMBps = 118, UpMBps = 9.9, SoundLevel = 1 };
+        // No server: the longest full date ("Wednesday 30 September" doesn't fit, so the month is shortened).
+        var longDate = new DateTime(2026, 9, 30, 23, 58, 58);
+        var bare = home with { Server = Effects.ServerState.NotSet, HeadsetOn = false };
         SavePreview(Effects.BaseStationScreen.RenderHome(home, homeTime), file);
-        SavePreview(Effects.BaseStationScreen.RenderHome(off, lateTime), stem + "-home-widest.png");
+        SavePreview(Effects.BaseStationScreen.RenderHome(widest, lateTime), stem + "-home-widest.png");
         SavePreview(Effects.BaseStationScreen.RenderMedia(media, now), stem + "-media.png");
         SavePreview(Effects.BaseStationScreen.RenderMedia(noTimeline, now), stem + "-media-no-timeline.png");
         SaveGrid(
         [
             ("Home", Effects.BaseStationScreen.RenderHome(home, homeTime)),
-            ("23:58:58, server off", Effects.BaseStationScreen.RenderHome(off, lateTime)),
-            ("No server set", Effects.BaseStationScreen.RenderHome(home with { Server = Effects.ServerState.NotSet }, homeTime)),
-            ("Headset off", Effects.BaseStationScreen.RenderHome(home with { HeadsetOn = false }, homeTime)),
+            ("Widest values", Effects.BaseStationScreen.RenderHome(widest, lateTime)),
+            ("No server, headset off", Effects.BaseStationScreen.RenderHome(bare, longDate)),
+            ("First second (no answer yet)", Effects.BaseStationScreen.RenderHome(home with { Server = Effects.ServerState.Checking }, homeTime)),
         ], stem + "-home.png");
         SaveGrid(
         [
