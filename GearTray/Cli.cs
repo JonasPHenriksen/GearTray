@@ -28,7 +28,7 @@ internal static class Cli
     public static readonly string[] Commands =
         ["--probe", "--list-hid", "--mouse", "--mouse-light", "--kb-light", "--kb-gamemode", "--headset", "--install-startup", "--uninstall-startup",
          "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling", "--screen-preview", "--screen-test",
-         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--xbox", "--xbox-light", "--xbox-light-test"];
+         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--xbox", "--xbox-light", "--xbox-light-test"];
 
     /// <summary>Runs one command, or several separated by ";;" (one elevation prompt for a whole test sequence).</summary>
     public static int Run(string[] args)
@@ -73,6 +73,8 @@ internal static class Cli
                     return ScreenPreview(rest[1]);
                 case "--audio-test":
                     return AudioTest();
+                case "--screen-data":
+                    return ScreenData();
                 case "--xbox":
                     return XboxReport();
                 case "--xbox-light":
@@ -292,12 +294,28 @@ internal static class Cli
         });
     }
 
-    private static readonly Effects.DashboardData SampleDashboard = new(55, false, 75, false, 100, "Pad on cable", false, null);
+    private static readonly Effects.DashboardData SampleDashboard = new(55, false, 75, false, 100, "Pad on cable", false, null,
+        "ELDEN RING", DateTime.Now.AddMinutes(-83));
 
-    /// <summary>Render the base-station dashboard to a PNG (4× size), without touching the device.</summary>
+    /// <summary>
+    /// Render every base-station page to PNGs (4× size) without touching the device: FILE is the clock page, and
+    /// FILE-media / -stats / -popup.png the others, with sample data.
+    /// </summary>
     private static int ScreenPreview(string file)
     {
-        var px = Effects.BaseStationScreen.Render(SampleDashboard, DateTime.Now);
+        var now = DateTime.Now;
+        var media = new MediaInfo("Everlong (Acoustic Version)", "Foo Fighters", "Spotify", true, TimeSpan.FromSeconds(83), TimeSpan.FromSeconds(231));
+        var stats = new PcStatsInfo(23, 18.4, 63.6, 97, 64, 9.1, 16);
+        string stem = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileNameWithoutExtension(file));
+        SavePreview(Effects.BaseStationScreen.Render(SampleDashboard, now), file);
+        SavePreview(Effects.BaseStationScreen.RenderMedia(media, now), stem + "-media.png");
+        SavePreview(Effects.BaseStationScreen.RenderStats(SampleDashboard, stats, now), stem + "-stats.png");
+        SavePreview(Effects.BaseStationScreen.RenderPopup("Game mode", "On", now), stem + "-popup.png");
+        return 0;
+    }
+
+    private static void SavePreview(bool[] px, string file)
+    {
         const int s = 4;
         using var bmp = new Bitmap(ArctisNovaProWireless.ScreenWidth * s, ArctisNovaProWireless.ScreenHeight * s);
         using (var g = Graphics.FromImage(bmp))
@@ -309,26 +327,35 @@ internal static class Cli
         }
         bmp.Save(file, System.Drawing.Imaging.ImageFormat.Png);
         Console.WriteLine($"Saved {file}");
-        return 0;
     }
 
-    /// <summary>Show the dashboard on the real base station for N seconds, then hand the screen back.</summary>
+    /// <summary>
+    /// Run GearTray's real base-station screen for N seconds with sample batteries and a sample game (so the PC stats
+    /// page takes part) plus whatever is really playing, then hand the screen back.
+    /// </summary>
     private static int ScreenTest(DeviceManager mgr, int seconds)
     {
         var h = mgr.Get<ArctisNovaProWireless>() is { Connected: true } hh ? hh : throw new InvalidOperationException("Base station not connected");
         if (!h.CanDrawScreen) throw new NotSupportedException("No screen channel");
-        var until = DateTime.UtcNow.AddSeconds(seconds);
-        try
-        {
-            while (DateTime.UtcNow < until)
-            {
-                var frame = Effects.BaseStationScreen.Render(SampleDashboard, DateTime.Now);
-                mgr.Run(() => { h.DrawScreen(frame); return 0; });
-                Thread.Sleep(1000);
-            }
-        }
-        finally { mgr.Run(() => { h.RestoreScreen(); return 0; }); }
+        using var screen = new Effects.BaseStationScreen(mgr, () => SampleDashboard);
+        screen.Start();
+        Thread.Sleep(TimeSpan.FromSeconds(Math.Max(3, seconds) / 2.0));
+        screen.Popup("Game mode", "On");
+        Thread.Sleep(TimeSpan.FromSeconds(Math.Max(3, seconds) / 2.0));
+        screen.Stop();
+        mgr.RunAsync(() => { }).Wait(2000); // let the restore go out
         Console.WriteLine("Base station screen test done; normal screen restored.");
+        return 0;
+    }
+
+    /// <summary>What the screen's pages would show right now: the media session and PC stats.</summary>
+    private static int ScreenData()
+    {
+        PcStats.Read();
+        Thread.Sleep(1000);
+        var m = MediaSession.Read();
+        Console.WriteLine(m is null ? "Now playing: no media session" : $"Now playing: {m}");
+        Console.WriteLine($"PC stats: {PcStats.Read()}");
         return 0;
     }
 

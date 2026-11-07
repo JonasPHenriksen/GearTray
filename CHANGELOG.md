@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0 (2026-11-07)
+
+- Base-station screen pages that take turns with the clock, only while they
+  apply:
+  - **Now playing** while music or video plays (title, artist, time, progress
+    bar), from Windows' own media controls, so Spotify, browsers and most
+    players work. A new song shows right away.
+  - **PC stats** while a game runs, even when you alt-tab out of it: the game's
+    name and how long it has been running, CPU and GPU load, GPU temperature,
+    video memory and RAM. GPU values come from NVIDIA's driver library
+    (nvml.dll). While gaming this page gets the most time.
+  - **Pop-ups** for a few seconds: game mode on/off, program profile, and the
+    controller connecting or disconnecting.
+  - Each can be switched off on the Headset tab.
+- Game detection remembers the game's name (its library folder) and start time.
+- `--screen-preview` renders every page; `--screen-test` runs the real
+  rotation; `--screen-data` prints what Now playing and PC stats read.
+
 ## 0.3.2 (2026-11-07)
 
 - Controller tab: the vibration test has Start and Stop buttons and runs until

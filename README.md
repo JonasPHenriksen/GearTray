@@ -60,9 +60,13 @@ GearTray does those parts itself:
 - **Lights off** when the screen turns off or after a chosen idle time.
 - **Mouse wheel only on low battery**: the wheel stays dark and breathes in a
   warning color once the battery drops below the limit.
-- **Base-station dashboard**: a clock, the date and every battery on the
-  Arctis base station's screen, shifted a pixel each minute against burn-in.
-  It steps aside while you turn a knob and gives the screen back when switched
+- **Base-station screen**: a clock, the date and every battery on the Arctis
+  base station's screen, with pages that take turns with it only while they
+  apply: now playing (from Windows' media controls) while something plays, and
+  PC stats (CPU, GPU load and temperature, video memory, RAM, the game and how
+  long it has run) while a game runs. Short pop-ups show game mode, program
+  profile and controller changes. Shifted a pixel each minute against burn-in;
+  it steps aside while you turn a knob and gives the screen back when switched
   off.
 - **Xbox button light**: controllers forget it on every reconnect, so GearTray
   sets it again each time.
@@ -128,8 +132,9 @@ whole test run).
 --kb-effect-test ambient|audiometer|ripple SECONDS
 --kb-exit-test                       from a pink frame to static green, then to Wave (leaving per-key mode)
 --headset noise=anc sidetone=1 ...   noise, transparency, sidetone, mic, micled, autooff, oled, eq, eqbands
---screen-test SECONDS                GearTray's dashboard on the base-station screen, then the screen back
---screen-preview FILE.png            the dashboard as a picture (no device needed)
+--screen-test SECONDS                GearTray's screen with its page rotation on the base station, then the screen back
+--screen-preview FILE.png            every screen page as a picture (no device needed)
+--screen-data                        what Now playing and PC stats read right now
 --xbox                               Xbox controllers: XInput state, battery, ids, firmware
 --xbox-light MODE [0-47]             off|on|blinkfast|blinkslow|fadeslow|fadefast
 --xbox-light-test                    brightest, very dim, slow fade, then Windows' level again

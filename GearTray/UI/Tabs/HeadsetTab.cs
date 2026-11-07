@@ -32,6 +32,9 @@ internal sealed class HeadsetTab : SettingsTab
     private readonly ComboBox _home = Ui.Combo(new Item<bool>("Detailed", false), new("Simple", true));
     private readonly Label _chatMix = new() { AutoSize = true };
     private readonly CheckBox _dashboard = new() { Text = "Show GearTray's screen: clock, date and every battery level", AutoSize = true };
+    private readonly CheckBox _screenMedia = new() { Text = "Now playing, while music or video plays", AutoSize = true };
+    private readonly CheckBox _screenStats = new() { Text = "PC stats, while a game runs", AutoSize = true };
+    private readonly CheckBox _screenPopups = new() { Text = "Pop-ups for game mode, program profiles and the controller", AutoSize = true };
     private readonly Label _firmware = new() { AutoSize = true, MaximumSize = new Size(560, 0) };
     private readonly Button _apply, _reload;
     private HeadsetState? _have;
@@ -101,15 +104,33 @@ internal sealed class HeadsetTab : SettingsTab
 
         var screen = AddSection("screen", "Base station screen");
         screen.Span(_dashboard);
-        screen.Note("Replaces the base station's normal screen while GearTray runs. It steps aside for a few seconds whenever you turn a knob, " +
-                    "shifts by a pixel every minute against burn-in, and gives the screen back when you untick it, exit GearTray or the PC sleeps.");
-        _dashboard.Checked = Tray.Settings.HeadsetScreen.Dashboard;
+        foreach (var page in new[] { _screenMedia, _screenStats, _screenPopups })
+        {
+            page.Margin = new Padding(24, 2, 3, 2);
+            screen.Span(page);
+        }
+        screen.Note("Replaces the base station's normal screen while GearTray runs. The clock is always there; now playing and PC stats " +
+                    "join it only while they apply and take turns when both do (a new song shows right away, PC stats get the most time " +
+                    "while gaming, and they include the game's name and how long it has been running). It steps aside for a few seconds " +
+                    "whenever you turn a knob, shifts by a pixel every minute against burn-in, and gives the screen back when you untick it, " +
+                    "exit GearTray or the PC sleeps.");
+        var screenSettings = Tray.Settings.HeadsetScreen;
+        _dashboard.Checked = screenSettings.Dashboard;
+        _screenMedia.Checked = screenSettings.ShowNowPlaying;
+        _screenStats.Checked = screenSettings.ShowPcStats;
+        _screenPopups.Checked = screenSettings.ShowPopups;
+        void UpdatePageBoxes() => _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled = _dashboard.Checked;
+        UpdatePageBoxes();
         _dashboard.CheckedChanged += (_, _) =>
         {
             Tray.Settings.HeadsetScreen.Dashboard = _dashboard.Checked;
             Tray.SaveSettings();
             Tray.ApplyHeadsetScreen();
+            UpdatePageBoxes();
         };
+        _screenMedia.CheckedChanged += (_, _) => { Tray.Settings.HeadsetScreen.ShowNowPlaying = _screenMedia.Checked; Tray.SaveSettings(); };
+        _screenStats.CheckedChanged += (_, _) => { Tray.Settings.HeadsetScreen.ShowPcStats = _screenStats.Checked; Tray.SaveSettings(); };
+        _screenPopups.CheckedChanged += (_, _) => { Tray.Settings.HeadsetScreen.ShowPopups = _screenPopups.Checked; Tray.SaveSettings(); };
 
         var info = AddSection("firmware", "Firmware");
         info.Span(_firmware);

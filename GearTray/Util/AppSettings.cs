@@ -34,6 +34,12 @@ public sealed class HeadsetScreenSettings
 {
     /// <summary>Show GearTray's dashboard (clock + batteries) instead of the base station's own screen.</summary>
     public bool Dashboard { get; set; }
+    /// <summary>Add a "now playing" page while music or video plays.</summary>
+    public bool ShowNowPlaying { get; set; } = true;
+    /// <summary>Add a PC stats page while a game runs.</summary>
+    public bool ShowPcStats { get; set; } = true;
+    /// <summary>Short pop-ups for game mode, program profiles and the controller connecting.</summary>
+    public bool ShowPopups { get; set; } = true;
     /// <summary>The dashboard was showing when GearTray last ran (so the screen gets handed back at startup if needed).</summary>
     public bool WasShowing { get; set; }
 }

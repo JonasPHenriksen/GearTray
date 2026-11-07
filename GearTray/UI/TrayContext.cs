@@ -46,6 +46,8 @@ public sealed class TrayContext : ApplicationContext
     private HeadsetState? _headset;
     private PadBattery? _controllerBattery;
     private bool _controllerConnected;
+    /// <summary>Last states shown as base-station pop-ups (null until first known, so startup shows none).</summary>
+    private bool? _gameModeShown, _controllerShown;
     private bool _mouseLowShown, _headsetLowShown, _controllerLowShown, _refreshing;
     private bool _displayOn = true, _idle;
     private bool? _gameModeApplied;
@@ -146,14 +148,24 @@ public sealed class TrayContext : ApplicationContext
         }
     }
 
+    /// <summary>Called on the screen's timer thread every second.</summary>
     private DashboardData DashboardSnapshot()
     {
         var h = _headset;
+        var s = Settings.HeadsetScreen;
         string? pad = _controllerConnected ? (ControllerBattery is { } c ? $"Pad {c.Percent}%" : "Pad on cable") : null;
+        var game = s.ShowPcStats ? _games.RunningGame() : null; // still counts while alt-tabbed out of it
         return new DashboardData(
             _mouseBattery?.Percent, _mouseBattery?.Charging ?? false,
             h is { HeadsetOnline: true } ? h.BatteryPercent : null, h?.Charging ?? false, h?.SpareBatteryPercent,
-            pad, GameModeActive, ActiveProfile?.Name);
+            pad, GameModeActive, ActiveProfile?.Name,
+            game?.Name, game?.Started, s.ShowNowPlaying, s.ShowPcStats);
+    }
+
+    /// <summary>A pop-up on the base-station screen, if it's GearTray's and pop-ups are on.</summary>
+    private void ScreenPopup(string title, string text)
+    {
+        if (Settings.HeadsetScreen.ShowPopups) _screen.Popup(title, text);
     }
 
     private async Task RescanAsync()
@@ -310,6 +322,8 @@ public sealed class TrayContext : ApplicationContext
         var f = Settings.KeyboardFeatures;
         bool on = GameModeActive;
         _hook.Configure(on, f.BlockWindowsKey, f.BlockAltTab, f.BlockAltF4, f.Remaps, f.Macros);
+        if (_gameModeShown is bool shown && shown != on) ScreenPopup("Game mode", on ? "On" : "Off");
+        _gameModeShown = on;
         if (_gameModeApplied == on) return;
         _gameModeApplied = on;
         Log.Info($"Game mode {(on ? "on" : "off")}{(_games.CurrentGame is string g && f.GameModeAuto ? $" ({g} in front)" : "")}");
@@ -336,7 +350,11 @@ public sealed class TrayContext : ApplicationContext
         if (next == ActiveProfile && !force) return;
         var previous = ActiveProfile;
         ActiveProfile = next;
-        if (next != previous) Log.Info(next is null ? $"Program profile off ({program ?? "nothing"} in front)" : $"Program profile “{next.Name}” on ({program})");
+        if (next != previous)
+        {
+            Log.Info(next is null ? $"Program profile off ({program ?? "nothing"} in front)" : $"Program profile “{next.Name}” on ({program})");
+            ScreenPopup("Profile", next?.Name ?? "Normal");
+        }
 
         // Keyboard look and game mode follow ActiveProfile through EffectiveKeyboard / GameModeActive.
         if (next?.KeyboardLighting is not null || previous?.KeyboardLighting is not null || force) ApplyKeyboardLook(persist: false);
@@ -414,6 +432,9 @@ public sealed class TrayContext : ApplicationContext
 
             int slot = XInput.ConnectedSlots().DefaultIfEmpty(-1).First();
             _controllerConnected = slot >= 0;
+            if (_controllerShown is bool wasConnected && wasConnected != _controllerConnected)
+                ScreenPopup("Controller", _controllerConnected ? "Connected" : "Disconnected");
+            _controllerShown = _controllerConnected;
             _controllerBattery = slot >= 0 ? XInput.GetBattery(slot) : null;
             UpdateIcon();
             CheckLowBattery();
