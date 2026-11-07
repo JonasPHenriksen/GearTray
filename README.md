@@ -107,6 +107,14 @@ icon first). To remove it, untick "Start GearTray when I sign in" on the General
 then delete `C:\Program Files\GearTray`, `%APPDATA%\GearTray` and the
 GearTray Start-menu shortcut.
 
+The CPU temperature on the stats page needs the PawnIO driver
+([pawnio.eu](https://pawnio.eu), installer from
+[namazso/PawnIO.Setup](https://github.com/namazso/PawnIO.Setup/releases)) and
+the signed `AMDFamily17.bin` from
+[namazso/PawnIO.Modules](https://github.com/namazso/PawnIO.Modules/releases)
+next to `GearTray.exe` (`--install-startup` copies it along). Without them the
+page simply leaves the CPU temperature out.
+
 Settings and the log are in `%APPDATA%\GearTray` (`settings.json`, `log.txt`).
 Mouse and headset settings are stored in the devices themselves; keyboard
 lighting is kept in `settings.json` because the keyboard can't report its
@@ -138,6 +146,7 @@ whole test run).
 --screen-preview FILE.png            every screen page as a picture (no device needed)
 --screen-data [N]                    what Now playing and PC stats read, N times a second apart
 --fps-test SECONDS                   present calls per second of every process (admin)
+--cpu-temp                           CPU temperature through PawnIO, three readings (admin)
 --xbox                               Xbox controllers: XInput state, battery, ids, firmware
 --xbox-light MODE [0-47]             off|on|blinkfast|blinkslow|fadeslow|fadefast
 --xbox-light-test                    brightest, very dim, slow fade, then Windows' level again

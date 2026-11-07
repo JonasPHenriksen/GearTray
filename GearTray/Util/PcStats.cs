@@ -61,7 +61,8 @@ public static unsafe class PcStats
             NvMemory mem;
             if (_memory(_gpu, &mem) == 0) { vramUsed = mem.Used / GiB; vramTotal = mem.Total / GiB; }
         }
-        return new PcStatsInfo(Math.Clamp(cpu, 0, 100), (m.ullTotalPhys - m.ullAvailPhys) / GiB, m.ullTotalPhys / GiB, gpu, temp, vramUsed, vramTotal);
+        int? cpuTemp = CpuTemperature.Read() is double c ? (int)Math.Round(c) : null;
+        return new PcStatsInfo(Math.Clamp(cpu, 0, 100), (m.ullTotalPhys - m.ullAvailPhys) / GiB, m.ullTotalPhys / GiB, gpu, temp, vramUsed, vramTotal, cpuTemp);
     }
 
     /// <summary>Loads NVML from its fixed install paths (never the search path) and picks the first GPU.</summary>

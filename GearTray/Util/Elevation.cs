@@ -51,6 +51,9 @@ public static class Elevation
         {
             Directory.CreateDirectory(InstallDir);
             if (!UI.DeviceChangeWindow.AskRunningInstanceToExit(10_000)) Log.Warn("The running GearTray didn't exit when asked");
+            // The signed PawnIO module for CPU temperature travels next to the exe when it's there.
+            string module = Path.Combine(Path.GetDirectoryName(ExePath)!, "AMDFamily17.bin");
+            if (File.Exists(module)) File.Copy(module, Path.Combine(InstallDir, "AMDFamily17.bin"), overwrite: true);
             try { File.Copy(ExePath, InstalledExe, overwrite: true); }
             catch (IOException ex) { throw new IOException("Couldn't update GearTray in Program Files. Exit the running GearTray first.", ex); }
         }

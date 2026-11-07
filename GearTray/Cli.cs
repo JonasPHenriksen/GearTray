@@ -28,7 +28,7 @@ internal static class Cli
     public static readonly string[] Commands =
         ["--probe", "--list-hid", "--mouse", "--mouse-light", "--kb-light", "--kb-gamemode", "--headset", "--install-startup", "--uninstall-startup",
          "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling", "--screen-preview", "--screen-test",
-         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--fps-test", "--xbox", "--xbox-light", "--xbox-light-test"];
+         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--fps-test", "--cpu-temp", "--xbox", "--xbox-light", "--xbox-light-test"];
 
     /// <summary>Runs one command, or several separated by ";;" (one elevation prompt for a whole test sequence).</summary>
     public static int Run(string[] args)
@@ -77,6 +77,8 @@ internal static class Cli
                     return ScreenData(rest.Count > 1 ? int.Parse(rest[1]) : 1);
                 case "--fps-test":
                     return FpsTest(rest.Count > 1 ? int.Parse(rest[1]) : 5);
+                case "--cpu-temp":
+                    return CpuTempTest();
                 case "--xbox":
                     return XboxReport();
                 case "--xbox-light":
@@ -382,6 +384,20 @@ internal static class Cli
         mgr.RunAsync(() => { }).Wait(2000); // let the restore go out
         Console.WriteLine("Base station screen test done; normal screen restored.");
         return 0;
+    }
+
+    /// <summary>The CPU temperature through PawnIO, three readings a second apart (admin).</summary>
+    private static int CpuTempTest()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            if (i > 0) Thread.Sleep(1000);
+            var raw = CpuTemperature.ReadRaw();
+            Console.WriteLine(raw is uint r
+                ? $"CPU (Tctl): {CpuTemperature.Decode(r):0.0} °C   (THM_TCON_CUR_TMP 0x{r:X8})"
+                : $"CPU temperature unavailable: {CpuTemperature.Status}");
+        }
+        return CpuTemperature.Status == "ready" ? 0 : 1;
     }
 
     /// <summary>Present calls per second of every process over N seconds, from the same events the FPS counter uses (admin).</summary>

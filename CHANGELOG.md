@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 (2026-11-07)
+
+- **CPU temperature** (Tctl) on the stats page for AMD Ryzen, through the
+  PawnIO driver (namazso, the one LibreHardwareMonitor and FanControl use)
+  and its signed AMDFamily17 module, which GearTray keeps next to its exe.
+  It reads the CPU's SMN register 0x59800 under the shared "Global\Access_PCI"
+  lock. Without PawnIO the label just says "CPU".
+- `--cpu-temp` prints three readings; `--install-startup` also copies the
+  module.
+
 ## 0.5.0 (2026-11-07)
 
 - **FPS** and the **1% low** (the frame rate of the slowest 1% of frames over
