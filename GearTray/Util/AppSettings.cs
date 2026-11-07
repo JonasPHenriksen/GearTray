@@ -32,7 +32,7 @@ public sealed class AppSettings
 /// <summary>Arctis base station screen.</summary>
 public sealed class HeadsetScreenSettings
 {
-    /// <summary>Show GearTray's dashboard (clock + batteries) instead of the base station's own screen.</summary>
+    /// <summary>Show GearTray's screen (home page, now playing, PC stats) instead of the base station's own.</summary>
     public bool Dashboard { get; set; }
     /// <summary>Add a "now playing" page while music or video plays.</summary>
     public bool ShowNowPlaying { get; set; } = true;
@@ -40,6 +40,8 @@ public sealed class HeadsetScreenSettings
     public bool ShowPcStats { get; set; } = true;
     /// <summary>Short pop-ups for game mode, program profiles and the controller connecting.</summary>
     public bool ShowPopups { get; set; } = true;
+    /// <summary>A server (IP address or name) pinged every second; the home page shows "Server: On" or "Off". Empty = none.</summary>
+    public string PingHost { get; set; } = "";
     /// <summary>How long each page stays up before the next one, in seconds (when more than one page applies).</summary>
     public int ClockSeconds { get; set; } = 8;
     public int NowPlayingSeconds { get; set; } = 6;

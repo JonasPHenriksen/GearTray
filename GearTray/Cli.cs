@@ -28,7 +28,7 @@ internal static class Cli
     public static readonly string[] Commands =
         ["--probe", "--list-hid", "--mouse", "--mouse-light", "--kb-light", "--kb-gamemode", "--headset", "--install-startup", "--uninstall-startup",
          "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling", "--screen-preview", "--screen-test",
-         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--fps-test", "--cpu-temp", "--xbox", "--xbox-light", "--xbox-light-test"];
+         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--screen-speed", "--fps-test", "--cpu-temp", "--xbox", "--xbox-light", "--xbox-light-test"];
 
     /// <summary>Runs one command, or several separated by ";;" (one elevation prompt for a whole test sequence).</summary>
     public static int Run(string[] args)
@@ -109,6 +109,7 @@ internal static class Cli
                 "--mouse-button-test" => MouseButtonTest(mgr),
                 "--kb-keys-test" => KeysTest(mgr, rest.Count > 1 ? int.Parse(rest[1]) : 8),
                 "--kb-exit-test" => ExitFramesTest(mgr),
+                "--screen-speed" => ScreenSpeed(mgr),
                 _ => Usage(),
             };
         }
@@ -302,8 +303,8 @@ internal static class Cli
         "ELDEN RING", DateTime.Now.AddMinutes(-83));
 
     /// <summary>
-    /// Render every base-station page to PNGs (4× size) without touching the device: FILE is the clock page, and
-    /// FILE-media / -stats / -popup.png the others, with sample data.
+    /// Render every base-station page to PNGs (4× size) without touching the device: FILE is the home page, and
+    /// FILE-home / -media / -stats / -popup.png the others, with sample data.
     /// </summary>
     private static int ScreenPreview(string file)
     {
@@ -312,9 +313,22 @@ internal static class Cli
         var noTimeline = media with { Title = "Alysa Liu wins the Olympic gold medal", Artist = "Team USA", App = "Firefox", Duration = TimeSpan.Zero, PlayingFor = TimeSpan.FromSeconds(42) };
         var stats = new PcStatsInfo(23, 18.4, 63.6, 97, 64, 9.1, 16, CpuTemp: 61, Fps: 143, FpsLow: 98, FpsAvg: 141);
         string stem = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileNameWithoutExtension(file));
-        SavePreview(Effects.BaseStationScreen.Render(SampleDashboard, now), file);
+        var home = new Effects.HomeData(true, 38, 12.3, 0.4, 0.66f, Effects.ServerState.On);
+        var homeTime = new DateTime(2026, 11, 7, 21, 47, 12);
+        // 23:58:58: the widest time, drawn a pixel right and down (burn-in shift), the worst case for the edges.
+        var lateTime = new DateTime(2026, 11, 7, 23, 58, 58);
+        var off = home with { Server = Effects.ServerState.Off };
+        SavePreview(Effects.BaseStationScreen.RenderHome(home, homeTime), file);
+        SavePreview(Effects.BaseStationScreen.RenderHome(off, lateTime), stem + "-home-widest.png");
         SavePreview(Effects.BaseStationScreen.RenderMedia(media, now), stem + "-media.png");
         SavePreview(Effects.BaseStationScreen.RenderMedia(noTimeline, now), stem + "-media-no-timeline.png");
+        SaveGrid(
+        [
+            ("Home", Effects.BaseStationScreen.RenderHome(home, homeTime)),
+            ("23:58:58, server off", Effects.BaseStationScreen.RenderHome(off, lateTime)),
+            ("No server set", Effects.BaseStationScreen.RenderHome(home with { Server = Effects.ServerState.NotSet }, homeTime)),
+            ("Headset off", Effects.BaseStationScreen.RenderHome(home with { HeadsetOn = false }, homeTime)),
+        ], stem + "-home.png");
         SaveGrid(
         [
             ("PC stats", Effects.BaseStationScreen.RenderStats(Played83(1), stats, PreviewTime(1))),
@@ -415,6 +429,29 @@ internal static class Cli
             catch (ArgumentException) { name = "(exited)"; }
             Console.WriteLine($"   {perSecond,7:0.0}/s  {name} ({pid})");
         }
+        return 0;
+    }
+
+    /// <summary>How long one picture takes to reach the base station: 25 home pages as fast as possible, then its own screen.</summary>
+    private static int ScreenSpeed(DeviceManager mgr)
+    {
+        var h = mgr.Get<ArctisNovaProWireless>() is { Connected: true, CanDrawScreen: true } hh ? hh : throw new InvalidOperationException("Base station screen not available");
+        var full = new List<double>();
+        var half = new List<double>();
+        var clock = new System.Diagnostics.Stopwatch();
+        for (int i = 0; i < 30; i++)
+        {
+            var frame = Effects.BaseStationScreen.RenderHome(new Effects.HomeData(true, 40, 1.0, 0.1, (i % 12) / 11f), DateTime.Now);
+            bool both = i < 12; // the first pictures whole, then only the right half (where the sound meter is)
+            mgr.Run(() => { clock.Restart(); h.DrawScreen(frame, left: both, right: true); clock.Stop(); return 0; });
+            (both ? full : half).Add(clock.Elapsed.TotalMilliseconds);
+        }
+        mgr.Run(() => { h.RestoreScreen(); return 0; });
+        var live = mgr.Run(() => h.ReadLive());
+        Console.WriteLine($"Headset connected: {live.Online}, volume {live.Volume?.ToString() ?? "?"}%");
+        Console.WriteLine($"Whole screen: average {full.Average():0.0} ms (fastest {full.Min():0.0}, slowest {full.Max():0.0})");
+        Console.WriteLine($"Right half only: average {half.Average():0.0} ms (fastest {half.Min():0.0}, slowest {half.Max():0.0})");
+        Console.WriteLine($"Sound meter at 5 updates a second: {half.Average() * 5 / 10:0.0}% of the device thread's time.");
         return 0;
     }
 

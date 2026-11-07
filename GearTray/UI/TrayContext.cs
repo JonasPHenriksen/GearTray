@@ -160,7 +160,8 @@ public sealed class TrayContext : ApplicationContext
             h is { HeadsetOnline: true } ? h.BatteryPercent : null, h?.Charging ?? false, h?.SpareBatteryPercent,
             pad, GameModeActive, ActiveProfile?.Name,
             game?.Name, game?.Started, s.ShowNowPlaying, s.ShowPcStats,
-            s.ClockSeconds, s.NowPlayingSeconds, s.PcStatsSeconds, game?.Pid ?? 0);
+            s.ClockSeconds, s.NowPlayingSeconds, s.PcStatsSeconds, game?.Pid ?? 0,
+            s.PingHost);
     }
 
     /// <summary>A pop-up on the base-station screen, if it's GearTray's and pop-ups are on.</summary>

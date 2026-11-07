@@ -60,8 +60,11 @@ GearTray does those parts itself:
 - **Lights off** when the screen turns off or after a chosen idle time.
 - **Mouse wheel only on low battery**: the wheel stays dark and breathes in a
   warning color once the battery drops below the limit.
-- **Base-station screen**: a clock, the date and every battery on the Arctis
-  base station's screen, with pages that take turns with it only while they
+- **Base-station screen**: GearTray's own home page on the Arctis base
+  station's screen: the clock with seconds, the date, download and upload
+  speed, the headset's volume beside a live sound meter (or "Headset off"),
+  and, if you set one, whether a server answers ping ("Server: On" or "Off",
+  checked every second). Pages take turns with it only while they
   apply: now playing (from Windows' media controls) while something plays, and
   PC stats (the game's FPS, CPU, GPU load and temperature, video memory, RAM,
   the game and how long it has run) while a game runs. FPS comes from
@@ -145,6 +148,7 @@ whole test run).
 --screen-test SECONDS                GearTray's screen with its page rotation on the base station, then the screen back
 --screen-preview FILE.png            every screen page as a picture (no device needed)
 --screen-data [N]                    what Now playing and PC stats read, N times a second apart
+--screen-speed                       how long a whole and a half picture take to reach the base station
 --fps-test SECONDS                   present calls per second of every process (admin)
 --cpu-temp                           CPU temperature through PawnIO, three readings (admin)
 --xbox                               Xbox controllers: XInput state, battery, ids, firmware

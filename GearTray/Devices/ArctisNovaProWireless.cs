@@ -119,6 +119,16 @@ public sealed class ArctisNovaProWireless : GearDevice, IHasBattery
         catch (TimeoutException) { return null; }
     }
 
+    /// <summary>For the base-station screen: is the headset on, and the dial's volume (two queries).</summary>
+    public (bool Online, int? Volume) ReadLive()
+    {
+        var s = Query(0xB0);
+        bool online = s is not null && ParseStatus(s).HeadsetOnline;
+        var a = Query(0x20);
+        int? volume = a is null ? null : (int)Math.Round((56 - Math.Min(a[3], (byte)56)) * 100 / 56.0);
+        return (online, volume);
+    }
+
     /// <summary>Status only (one query): battery, spare battery, noise mode, connection.</summary>
     public HeadsetState ReadStatus() =>
         ParseStatus(Query(0xB0) ?? throw new TimeoutException("Base station did not answer the status query"));
@@ -237,14 +247,16 @@ public sealed class ArctisNovaProWireless : GearDevice, IHasBattery
 
     /// <summary>
     /// Show a 128×64 picture (pixels[x + y*128] = lit) on the base station's screen. Sent as two 1024-byte feature
-    /// reports (06 93 x y w h + column-major pixels, lowest bit = top pixel), per ggoled.
+    /// reports, one per 64-pixel half (06 93 x y w h + column-major pixels, lowest bit = top pixel), per ggoled; each
+    /// takes about 18 ms, so a half that didn't change can be left out.
     /// </summary>
-    public void DrawScreen(ReadOnlySpan<bool> pixels)
+    public void DrawScreen(ReadOnlySpan<bool> pixels, bool left = true, bool right = true)
     {
         var feat = _feat ?? throw new NotSupportedException("This base station's screen can't be drawn on.");
         WaitUntilReady();
         for (int half = 0; half < 2; half++)
         {
+            if (half == 0 ? !left : !right) continue;
             var buf = new byte[1024];
             buf[0] = 0x06; buf[1] = 0x93; buf[2] = (byte)(half * 64); buf[3] = 0; buf[4] = 64; buf[5] = 64;
             for (int x = 0; x < 64; x++)

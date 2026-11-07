@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0 (2026-11-07)
+
+- **New home page** on the base-station screen instead of the battery list
+  (batteries stay in the tray): the clock with seconds, its digits in even
+  cells so it doesn't shift as they tick; the date; download and upload speed,
+  each centred in its half; and the headset row: the volume as a short bar
+  with its percentage beside a live sound meter (left and right combined), or
+  "Headset off" with a crossed-out headset. The volume is read every 3 s and
+  right after the knob is turned.
+- **Server to ping** (Headset tab): an IP address or name, pinged every second
+  and shown beside a short date as "Server: On", or "Off" after two missed
+  answers in a row. Without one, the full date shows.
+- The screen sends only the half of the picture that changed (about 20 ms
+  over USB, against 36 ms for the whole picture), and nothing when it's
+  unchanged.
+- `--screen-speed` times pictures sent to the base station.
+
 ## 0.5.2 (2026-11-07)
 
 - **Average FPS** of the game, over the time it kept drawing (pauses over a

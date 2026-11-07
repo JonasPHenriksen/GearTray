@@ -12,21 +12,24 @@ namespace GearTray.Effects;
 public sealed record DashboardData(int? Mouse, bool MouseCharging, int? Headset, bool HeadsetCharging, int? Spare,
     string? Controller, bool GameMode, string? Profile,
     string? Game = null, DateTime? GameStarted = null, bool ShowMedia = true, bool ShowStats = true,
-    int ClockSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8, uint GamePid = 0);
+    int ClockSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8, uint GamePid = 0,
+    string? PingHost = null);
 
 public enum ScreenPage { Clock, Media, Stats }
 
 /// <summary>
-/// GearTray's own screen on the Arctis base station's 128×64 OLED. The clock page (time, date, batteries) is always
-/// there; "now playing" joins while something plays and PC stats while a game runs, taking turns for the number of
-/// seconds set per page, and a new song jumps straight to its page. Pop-ups (game mode, profile,
-/// controller) cut in for a few seconds. Redraws every second, steps aside for ~3.5 s after a knob is turned (the base
-/// station shows its own volume screen then), shifts the picture by a pixel every minute against burn-in, and hands
-/// the screen back to the base station when stopped.
+/// GearTray's own screen on the Arctis base station's 128×64 OLED. The home page (clock, date, network speed, headset
+/// volume and a live sound meter) is always there; "now playing" joins while something plays and PC stats while a
+/// game runs, taking turns for the number of seconds set per page, and a new song jumps straight to its page. Pop-ups
+/// (game mode, profile, controller) cut in for a few seconds. Composed five times a second but only sent when the
+/// picture changed (the sound meter moves; everything else changes about once a second); steps aside for ~3.5 s after
+/// a knob is turned (the base station shows its own volume screen then), shifts the picture by a pixel every minute
+/// against burn-in, and hands the screen back to the base station when stopped.
 /// </summary>
-public sealed class BaseStationScreen : IDisposable
+public sealed partial class BaseStationScreen : IDisposable
 {
     private const int W = ArctisNovaProWireless.ScreenWidth, H = ArctisNovaProWireless.ScreenHeight;
+    private const int TickMs = 200;
     private readonly DeviceManager _devices;
     private readonly Func<DashboardData> _data;
     private readonly object _popupGate = new();
@@ -37,6 +40,30 @@ public sealed class BaseStationScreen : IDisposable
     private DateTime _pageSince;
     private string? _lastTrack;
     private (string Title, string Text, DateTime Until)? _popup;
+
+    // Readings refreshed once a second (the timer ticks five times a second).
+    private DateTime _slowAt;
+    private MediaInfo? _media;
+    private PcStatsInfo? _stats;
+    private (double? Down, double? Up) _net;
+    // The sound meter, read every tick while the home page shows; fast attack, smooth fall.
+    private AudioMeter? _meter;
+    private float _level;
+    // Headset state read on the device thread every 3 s and after the dial is turned.
+    private volatile LiveHeadset? _live;
+    private DateTime _liveReadAt, _nextLiveRead;
+    // The last picture sent, to skip unchanged frames.
+    private bool[]? _lastFrame;
+    private DateTime _lastSentAt;
+    private volatile bool _forceSend;
+
+    private sealed record LiveHeadset(bool Online, int? Volume);
+
+    // The server pinged for the home page, once a second in the background along with the other readings. It turns
+    // Off only after two missed answers in a row, so a single lost packet doesn't flash it.
+    private volatile string? _pingHost;
+    private volatile bool _pingKnown, _pingOn;
+    private int _pinging, _pingMisses;
 
     public BaseStationScreen(DeviceManager devices, Func<DashboardData> data)
     {
@@ -50,7 +77,9 @@ public sealed class BaseStationScreen : IDisposable
     {
         if (_running) return;
         _running = true;
-        _timer = new System.Threading.Timer(_ => Tick(), null, 500, 1000);
+        _lastFrame = null;
+        _nextLiveRead = DateTime.MinValue;
+        _timer = new System.Threading.Timer(_ => Tick(), null, 500, TickMs);
         Log.Info("Base station screen: GearTray screen on");
     }
 
@@ -62,6 +91,8 @@ public sealed class BaseStationScreen : IDisposable
         _timer?.Dispose();
         _timer = null;
         FpsCounter.Stop();
+        _meter?.Dispose();
+        _meter = null;
         Restore();
         Log.Info("Base station screen: back to the normal screen");
     }
@@ -93,37 +124,71 @@ public sealed class BaseStationScreen : IDisposable
         bool[] frame;
         try { frame = Compose(_data(), DateTime.Now); }
         catch (Exception ex) { Log.Warn("Base station screen render: " + ex.Message); Volatile.Write(ref _busy, 0); return; }
+
+        // Send only the halves that changed (the sound meter lives in the right half); everything after a pause, after
+        // the base station showed its own screen, or every 10 s as a keep-alive.
+        var nowUtc = DateTime.UtcNow;
+        var last = _lastFrame;
+        bool full = _forceSend || last is null || nowUtc - _lastSentAt >= TimeSpan.FromSeconds(10);
+        bool sendLeft = full || HalfDiffers(frame, last!, 0), sendRight = full || HalfDiffers(frame, last!, 1);
+        bool unchanged = !sendLeft && !sendRight;
+        bool liveDue = nowUtc >= _nextLiveRead;
+        if (unchanged && !liveDue) { Volatile.Write(ref _busy, 0); return; }
+
         _ = _devices.RunAsync(() =>
         {
             try
             {
                 if (!_running || _devices.Get<ArctisNovaProWireless>() is not { Connected: true, CanDrawScreen: true } h) return;
                 h.DrainEvents();
-                if (DateTime.UtcNow - h.LastKnobUse < TimeSpan.FromSeconds(3.5)) return; // the base station is showing its volume screen
-                h.DrawScreen(frame);
+                if (liveDue || h.LastKnobUse > _liveReadAt)
+                {
+                    var (online, volume) = h.ReadLive();
+                    _live = new LiveHeadset(online, volume);
+                    _liveReadAt = DateTime.UtcNow;
+                    _nextLiveRead = _liveReadAt.AddSeconds(3);
+                }
+                if (DateTime.UtcNow - h.LastKnobUse < TimeSpan.FromSeconds(3.5))
+                {
+                    _forceSend = true; // the base station is showing its volume screen; redraw ours once it's done
+                    return;
+                }
+                if (unchanged) return;
+                h.DrawScreen(frame, sendLeft, sendRight);
+                _lastFrame = frame;
+                _lastSentAt = DateTime.UtcNow;
+                _forceSend = false;
             }
             catch (Exception ex) { Log.Warn("Base station screen: " + ex.Message); }
             finally { Volatile.Write(ref _busy, 0); }
         });
     }
 
-    /// <summary>Pick the page for this second and draw it.</summary>
+    /// <summary>Pick the page for this moment and draw it.</summary>
     private bool[] Compose(DashboardData d, DateTime now)
     {
         (string Title, string Text, DateTime Until)? popup;
         lock (_popupGate) popup = _popup;
         if (popup is { } p && DateTime.UtcNow < p.Until) return RenderPopup(p.Title, p.Text, now);
 
-        var media = d.ShowMedia ? MediaSession.Read() : null;
-        bool mediaOn = media is { Playing: true } && (media.Title.Length > 0 || media.Artist.Length > 0);
         bool statsOn = d.ShowStats && d.Game is not null;
-        FpsCounter.Watch(statsOn ? d.GamePid : 0);
-        PcStatsInfo? stats = null;
-        if (statsOn)
+        if (DateTime.UtcNow - _slowAt >= TimeSpan.FromSeconds(1))
         {
-            var (fps, low, avg) = FpsCounter.Read();
-            stats = PcStats.Read() with { Fps = fps, FpsLow = low, FpsAvg = avg };
+            _slowAt = DateTime.UtcNow;
+            _media = d.ShowMedia ? MediaSession.Read() : null;
+            FpsCounter.Watch(statsOn ? d.GamePid : 0);
+            _stats = null;
+            if (statsOn)
+            {
+                var (fps, low, avg) = FpsCounter.Read();
+                _stats = PcStats.Read() with { Fps = fps, FpsLow = low, FpsAvg = avg };
+            }
+            _net = NetworkSpeed.Read();
+            if (!string.IsNullOrWhiteSpace(d.PingHost)) Ping(d.PingHost.Trim());
+            else _pingHost = null;
         }
+        var media = _media;
+        bool mediaOn = media is { Playing: true } && (media.Title.Length > 0 || media.Artist.Length > 0);
 
         if (mediaOn)
         {
@@ -131,14 +196,68 @@ public sealed class BaseStationScreen : IDisposable
             if (track != _lastTrack) { _page = ScreenPage.Media; _pageSince = DateTime.UtcNow; } // new song: show it now
             _lastTrack = track;
         }
-        _page = NextPage(_page, mediaOn, statsOn, d);
+        _page = NextPage(_page, mediaOn, statsOn && _stats is not null, d);
         return _page switch
         {
             ScreenPage.Media when mediaOn => RenderMedia(media!, now),
-            ScreenPage.Stats when stats is not null => RenderStats(d, stats, now),
-            _ => Render(d, now),
+            ScreenPage.Stats when _stats is not null => RenderStats(d, _stats, now),
+            _ => RenderHome(HomeNow(d), now),
         };
     }
+
+    /// <summary>The home page's live values; the sound meter is read here, every tick.</summary>
+    private HomeData HomeNow(DashboardData d)
+    {
+        _meter ??= new AudioMeter();
+        var (left, right) = _meter.Read();
+        float target = Math.Max(Level(left), Level(right));
+        _level = Math.Max(target, _level * 0.7f); // fast attack, smooth fall
+        if (_level < 0.02f) _level = 0;
+        var live = _live;
+        var server = string.IsNullOrWhiteSpace(d.PingHost) ? ServerState.NotSet
+            : !_pingKnown ? ServerState.Checking : _pingOn ? ServerState.On : ServerState.Off;
+        return new HomeData(live?.Online ?? false, live?.Volume, _net.Down, _net.Up, _level, server);
+    }
+
+    /// <summary>
+    /// Pings the server in the background (a 1 s timeout, so a server that's down never stalls the screen); called once
+    /// a second, and skipped while the last ping is still out.
+    /// </summary>
+    private void Ping(string host)
+    {
+        if (host != _pingHost)
+        {
+            _pingHost = host;
+            _pingKnown = _pingOn = false;
+            _pingMisses = 0;
+        }
+        if (Interlocked.Exchange(ref _pinging, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            bool answered = false;
+            try
+            {
+                using var ping = new System.Net.NetworkInformation.Ping();
+                answered = (await ping.SendPingAsync(host, 1000)).Status == System.Net.NetworkInformation.IPStatus.Success;
+            }
+            catch (Exception) { } // unknown name, no network
+            finally { Volatile.Write(ref _pinging, 0); }
+            if (host != _pingHost) return; // the address was changed meanwhile; its own ping follows
+            if (answered) { _pingMisses = 0; _pingOn = _pingKnown = true; }
+            else if (++_pingMisses >= 2) { _pingOn = false; _pingKnown = true; }
+        });
+    }
+
+    private static bool HalfDiffers(bool[] a, bool[] b, int half)
+    {
+        for (int y = 0; y < H; y++)
+            if (!a.AsSpan(y * W + half * 64, 64).SequenceEqual(b.AsSpan(y * W + half * 64, 64))) return true;
+        return false;
+    }
+
+    /// <summary>Peak 0–1 → 0–1 on a −48…0 dB scale, which matches how loud things sound.</summary>
+    private static float Level(float peak) =>
+        peak <= 0.0001f ? 0 : Math.Clamp((20f * MathF.Log10(peak) + 48f) / 48f, 0f, 1f);
 
     private ScreenPage NextPage(ScreenPage current, bool media, bool stats, DashboardData d)
     {
@@ -160,24 +279,6 @@ public sealed class BaseStationScreen : IDisposable
     }, 2, 300));
 
     // ---------- pages ----------
-
-    /// <summary>The clock page: time, date and every battery level.</summary>
-    public static bool[] Render(DashboardData d, DateTime now) => Draw(now, g =>
-    {
-        using var big = new Font("Segoe UI Semibold", 15f, GraphicsUnit.Pixel);
-        using var small = new Font("Segoe UI", 10f, GraphicsUnit.Pixel);
-        g.DrawString(now.ToString("HH:mm"), big, Brushes.White, -1, -3);
-        var date = now.ToString("ddd d MMM");
-        var dateSize = g.MeasureString(date, small);
-        g.DrawString(date, small, Brushes.White, W - dateSize.Width - 2, 2);
-
-        int y = 19;
-        BatteryLine(g, small, ref y, "Mouse", d.Mouse, d.MouseCharging);
-        BatteryLine(g, small, ref y, "Headset", d.Headset, d.HeadsetCharging);
-        if (d.Spare is int spare) BatteryLine(g, small, ref y, "Spare", spare, false);
-        string bottom = d.Profile is not null ? d.Profile : d.GameMode ? "Game mode" : d.Controller ?? "";
-        if (bottom.Length > 0 && y <= H - 11) g.DrawString(bottom, small, Brushes.White, 0, y - 1);
-    });
 
     /// <summary>Now playing: title (two lines), artist, elapsed and remaining time, progress bar.</summary>
     public static bool[] RenderMedia(MediaInfo m, DateTime now) => Draw(now, g =>
@@ -318,22 +419,6 @@ public sealed class BaseStationScreen : IDisposable
             return pixels;
         }
         finally { bmp.UnlockBits(data); }
-    }
-
-    /// <summary>"Label  ███████░░░  56%" on one 11-pixel row.</summary>
-    private static void BatteryLine(Graphics g, Font font, ref int y, string label, int? percent, bool charging)
-    {
-        g.DrawString(label, font, Brushes.White, 0, y - 1);
-        string value = percent is int p ? $"{p}%{(charging ? "+" : "")}" : "–";
-        var size = g.MeasureString(value, font);
-        g.DrawString(value, font, Brushes.White, W - size.Width + 2, y - 1);
-        if (percent is int pct)
-        {
-            const int barX = 46, barW = 50;
-            g.DrawRectangle(Pens.White, barX, y + 2, barW, 6);
-            g.FillRectangle(Brushes.White, barX + 1, y + 3, (barW - 1) * Math.Clamp(pct, 0, 100) / 100, 5);
-        }
-        y += 11;
     }
 
     public void Dispose() => Stop();

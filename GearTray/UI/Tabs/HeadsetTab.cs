@@ -31,11 +31,12 @@ internal sealed class HeadsetTab : SettingsTab
     private readonly ComboBox _dim = Ui.Combo(ArctisNovaProWireless.DimMinutes.Select((m, i) => new Item<int>(m == 0 ? "Never" : $"{m} min", i)).ToArray());
     private readonly ComboBox _home = Ui.Combo(new Item<bool>("Detailed", false), new("Simple", true));
     private readonly Label _chatMix = new() { AutoSize = true };
-    private readonly CheckBox _dashboard = new() { Text = "Show GearTray's screen: clock, date and every battery level", AutoSize = true };
+    private readonly CheckBox _dashboard = new() { Text = "Show GearTray's screen: clock, date, network speed, volume and sound", AutoSize = true };
     private readonly CheckBox _screenMedia = new() { Text = "Now playing, while music or video plays", AutoSize = true };
     private readonly CheckBox _screenStats = new() { Text = "PC stats, while a game runs", AutoSize = true };
     private readonly CheckBox _screenPopups = new() { Text = "Pop-ups for game mode, program profiles and the controller", AutoSize = true };
     private readonly NumericUpDown _secClock = PageSeconds(), _secMedia = PageSeconds(), _secStats = PageSeconds();
+    private readonly TextBox _pingHost = new() { Width = 130, PlaceholderText = "e.g. 192.168.50.10" };
 
     private static NumericUpDown PageSeconds() => new() { Minimum = 2, Maximum = 300, Width = 52, Margin = new Padding(3, 5, 10, 3) };
     private readonly Label _firmware = new() { AutoSize = true, MaximumSize = new Size(560, 0) };
@@ -114,11 +115,13 @@ internal sealed class HeadsetTab : SettingsTab
         }
         screen.Row("Seconds per page", Section.Line(
             Section.Caption("Clock"), _secClock, Section.Caption("Now playing"), _secMedia, Section.Caption("PC stats"), _secStats));
-        screen.Note("Replaces the base station's normal screen while GearTray runs. The clock is always there; now playing and PC stats " +
-                    "join it only while they apply, and the pages take turns, each staying up for the seconds set above (a new song " +
-                    "shows right away; PC stats include the game's name and how long it has been running). It steps aside for a few " +
-                    "seconds whenever you turn a knob, shifts by a pixel every minute against burn-in, and gives the screen back when you " +
-                    "untick it, exit GearTray or the PC sleeps.");
+        screen.Row("Server to ping", Section.Line(_pingHost, Section.Caption("IP address or name; leave empty for none")));
+        screen.Note("Replaces the base station's normal screen while GearTray runs. The home page (clock, date, download and upload " +
+                    "speed, headset volume and a live sound meter) is always there; now playing and PC stats join it only while they " +
+                    "apply, and the pages take turns, each staying up for the seconds set above (a new song shows right away). The " +
+                    "server is pinged every second and shows next to the date as \"Server: On\", or \"Off\" after two missed answers " +
+                    "in a row. The screen steps aside for a few seconds whenever you turn a knob, shifts by a pixel every minute " +
+                    "against burn-in, and gives the screen back when you untick it, exit GearTray or the PC sleeps.");
         var screenSettings = Tray.Settings.HeadsetScreen;
         _dashboard.Checked = screenSettings.Dashboard;
         _screenMedia.Checked = screenSettings.ShowNowPlaying;
@@ -130,9 +133,11 @@ internal sealed class HeadsetTab : SettingsTab
         _secClock.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.ClockSeconds = (int)_secClock.Value; Tray.SaveSettings(); };
         _secMedia.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.NowPlayingSeconds = (int)_secMedia.Value; Tray.SaveSettings(); };
         _secStats.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.PcStatsSeconds = (int)_secStats.Value; Tray.SaveSettings(); };
+        _pingHost.Text = screenSettings.PingHost;
+        _pingHost.TextChanged += (_, _) => { Tray.Settings.HeadsetScreen.PingHost = _pingHost.Text.Trim(); Tray.SaveSettings(); };
         void UpdatePageBoxes() =>
             _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled =
-            _secClock.Enabled = _secMedia.Enabled = _secStats.Enabled = _dashboard.Checked;
+            _secClock.Enabled = _secMedia.Enabled = _secStats.Enabled = _pingHost.Enabled = _dashboard.Checked;
         UpdatePageBoxes();
         _dashboard.CheckedChanged += (_, _) =>
         {
