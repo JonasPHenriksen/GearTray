@@ -35,6 +35,9 @@ internal sealed class HeadsetTab : SettingsTab
     private readonly CheckBox _screenMedia = new() { Text = "Now playing, while music or video plays", AutoSize = true };
     private readonly CheckBox _screenStats = new() { Text = "PC stats, while a game runs", AutoSize = true };
     private readonly CheckBox _screenPopups = new() { Text = "Pop-ups for game mode, program profiles and the controller", AutoSize = true };
+    private readonly NumericUpDown _secClock = PageSeconds(), _secMedia = PageSeconds(), _secStats = PageSeconds();
+
+    private static NumericUpDown PageSeconds() => new() { Minimum = 2, Maximum = 300, Width = 52, Margin = new Padding(3, 5, 10, 3) };
     private readonly Label _firmware = new() { AutoSize = true, MaximumSize = new Size(560, 0) };
     private readonly Button _apply, _reload;
     private HeadsetState? _have;
@@ -109,17 +112,27 @@ internal sealed class HeadsetTab : SettingsTab
             page.Margin = new Padding(24, 2, 3, 2);
             screen.Span(page);
         }
+        screen.Row("Seconds per page", Section.Line(
+            Section.Caption("Clock"), _secClock, Section.Caption("Now playing"), _secMedia, Section.Caption("PC stats"), _secStats));
         screen.Note("Replaces the base station's normal screen while GearTray runs. The clock is always there; now playing and PC stats " +
-                    "join it only while they apply and take turns when both do (a new song shows right away, PC stats get the most time " +
-                    "while gaming, and they include the game's name and how long it has been running). It steps aside for a few seconds " +
-                    "whenever you turn a knob, shifts by a pixel every minute against burn-in, and gives the screen back when you untick it, " +
-                    "exit GearTray or the PC sleeps.");
+                    "join it only while they apply, and the pages take turns, each staying up for the seconds set above (a new song " +
+                    "shows right away; PC stats include the game's name and how long it has been running). It steps aside for a few " +
+                    "seconds whenever you turn a knob, shifts by a pixel every minute against burn-in, and gives the screen back when you " +
+                    "untick it, exit GearTray or the PC sleeps.");
         var screenSettings = Tray.Settings.HeadsetScreen;
         _dashboard.Checked = screenSettings.Dashboard;
         _screenMedia.Checked = screenSettings.ShowNowPlaying;
         _screenStats.Checked = screenSettings.ShowPcStats;
         _screenPopups.Checked = screenSettings.ShowPopups;
-        void UpdatePageBoxes() => _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled = _dashboard.Checked;
+        _secClock.Value = Math.Clamp(screenSettings.ClockSeconds, 2, 300);
+        _secMedia.Value = Math.Clamp(screenSettings.NowPlayingSeconds, 2, 300);
+        _secStats.Value = Math.Clamp(screenSettings.PcStatsSeconds, 2, 300);
+        _secClock.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.ClockSeconds = (int)_secClock.Value; Tray.SaveSettings(); };
+        _secMedia.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.NowPlayingSeconds = (int)_secMedia.Value; Tray.SaveSettings(); };
+        _secStats.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.PcStatsSeconds = (int)_secStats.Value; Tray.SaveSettings(); };
+        void UpdatePageBoxes() =>
+            _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled =
+            _secClock.Enabled = _secMedia.Enabled = _secStats.Enabled = _dashboard.Checked;
         UpdatePageBoxes();
         _dashboard.CheckedChanged += (_, _) =>
         {

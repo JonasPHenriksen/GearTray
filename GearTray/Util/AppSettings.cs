@@ -40,6 +40,10 @@ public sealed class HeadsetScreenSettings
     public bool ShowPcStats { get; set; } = true;
     /// <summary>Short pop-ups for game mode, program profiles and the controller connecting.</summary>
     public bool ShowPopups { get; set; } = true;
+    /// <summary>How long each page stays up before the next one, in seconds (when more than one page applies).</summary>
+    public int ClockSeconds { get; set; } = 8;
+    public int NowPlayingSeconds { get; set; } = 6;
+    public int PcStatsSeconds { get; set; } = 8;
     /// <summary>The dashboard was showing when GearTray last ran (so the screen gets handed back at startup if needed).</summary>
     public bool WasShowing { get; set; }
 }

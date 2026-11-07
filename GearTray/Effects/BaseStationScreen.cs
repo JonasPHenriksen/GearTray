@@ -5,17 +5,21 @@ using GearTray.Util;
 
 namespace GearTray.Effects;
 
-/// <summary>What the base-station screen shows; supplied by the tray. Game is the running game's name, if any.</summary>
+/// <summary>
+/// What the base-station screen shows; supplied by the tray. Game is the running game's name, if any. The *Seconds
+/// values are how long each page stays up when more than one page applies.
+/// </summary>
 public sealed record DashboardData(int? Mouse, bool MouseCharging, int? Headset, bool HeadsetCharging, int? Spare,
     string? Controller, bool GameMode, string? Profile,
-    string? Game = null, DateTime? GameStarted = null, bool ShowMedia = true, bool ShowStats = true);
+    string? Game = null, DateTime? GameStarted = null, bool ShowMedia = true, bool ShowStats = true,
+    int ClockSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8);
 
 public enum ScreenPage { Clock, Media, Stats }
 
 /// <summary>
 /// GearTray's own screen on the Arctis base station's 128×64 OLED. The clock page (time, date, batteries) is always
-/// there; "now playing" joins while something plays and PC stats while a game runs, taking turns when both apply
-/// (stats get the most time while gaming), and a new song jumps straight to its page. Pop-ups (game mode, profile,
+/// there; "now playing" joins while something plays and PC stats while a game runs, taking turns for the number of
+/// seconds set per page, and a new song jumps straight to its page. Pop-ups (game mode, profile,
 /// controller) cut in for a few seconds. Redraws every second, steps aside for ~3.5 s after a knob is turned (the base
 /// station shows its own volume screen then), shifts the picture by a pixel every minute against burn-in, and hands
 /// the screen back to the base station when stopped.
@@ -120,7 +124,7 @@ public sealed class BaseStationScreen : IDisposable
             if (track != _lastTrack) { _page = ScreenPage.Media; _pageSince = DateTime.UtcNow; } // new song: show it now
             _lastTrack = track;
         }
-        _page = NextPage(_page, mediaOn, statsOn);
+        _page = NextPage(_page, mediaOn, statsOn, d);
         return _page switch
         {
             ScreenPage.Media when mediaOn => RenderMedia(media!, now),
@@ -129,24 +133,24 @@ public sealed class BaseStationScreen : IDisposable
         };
     }
 
-    private ScreenPage NextPage(ScreenPage current, bool media, bool stats)
+    private ScreenPage NextPage(ScreenPage current, bool media, bool stats, DashboardData d)
     {
         ScreenPage[] order = stats ? [ScreenPage.Stats, ScreenPage.Clock, ScreenPage.Media] : [ScreenPage.Clock, ScreenPage.Media];
         var eligible = order.Where(p => p == ScreenPage.Clock || (p == ScreenPage.Media && media) || (p == ScreenPage.Stats && stats)).ToList();
         var now = DateTime.UtcNow;
         if (!eligible.Contains(current)) { _pageSince = now; return eligible[0]; }
-        if (eligible.Count == 1 || now - _pageSince < Dwell(current, stats)) return current;
+        if (eligible.Count == 1 || now - _pageSince < Dwell(current, d)) return current;
         _pageSince = now;
         return eligible[(eligible.IndexOf(current) + 1) % eligible.Count];
     }
 
-    /// <summary>How long each page stays up: while gaming the stats page gets the most time.</summary>
-    private static TimeSpan Dwell(ScreenPage page, bool gaming) => TimeSpan.FromSeconds(page switch
+    /// <summary>How long a page stays up, as set on the Headset tab (2–300 s).</summary>
+    private static TimeSpan Dwell(ScreenPage page, DashboardData d) => TimeSpan.FromSeconds(Math.Clamp(page switch
     {
-        ScreenPage.Stats => 8,
-        ScreenPage.Clock => gaming ? 4 : 10,
-        _ => 6,
-    });
+        ScreenPage.Stats => d.StatsSeconds,
+        ScreenPage.Media => d.MediaSeconds,
+        _ => d.ClockSeconds,
+    }, 2, 300));
 
     // ---------- pages ----------
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2 (2026-11-07)
+
+- Base-station screen: seconds per page for the clock, Now playing and PC
+  stats, set on the Headset tab (2–300 s; defaults 8, 6 and 8).
+
 ## 0.4.1 (2026-11-07)
 
 - Now playing keeps the track's position. Firefox reports an all-zero
