@@ -3,8 +3,19 @@ namespace GearTray.Util;
 public static class Log
 {
     private static readonly object Gate = new();
-    public static string Directory { get; } =
+
+    /// <summary>%APPDATA%\GearTray: settings and log of a GearTray running without admin rights.</summary>
+    public static string UserDirectory { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GearTray");
+
+    /// <summary>
+    /// Where settings and the log are kept. With admin rights (the installed GearTray, started by its logon task)
+    /// that's C:\Program Files\GearTray\Data, which only administrators can change. %APPDATA%\GearTray can be changed
+    /// by every program the user runs: one could swap the folder for a link and turn the log's writes and renames
+    /// into writes and moves of other files with admin rights, or edit settings an elevated GearTray acts on (the
+    /// macros it types). Without admin rights writing there is no such risk, so it stays %APPDATA%\GearTray.
+    /// </summary>
+    public static string Directory { get; } = Elevation.IsAdmin ? Elevation.DataDir : UserDirectory;
     public static string FilePath { get; } = Path.Combine(Directory, "log.txt");
 
     /// <summary>Also echo log lines to stdout (CLI mode).</summary>

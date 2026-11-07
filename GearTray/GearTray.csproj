@@ -9,11 +9,16 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>GearTray</AssemblyName>
     <RootNamespace>GearTray</RootNamespace>
-    <Version>0.6.2</Version>
+    <Version>0.7.0</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- GearTray runs with admin rights from a logon task, which hands it the user's environment variables (any
+         program of the user can set those): ignore DOTNET_STARTUP_HOOKS, and look for the .NET runtime only where
+         it's installed (Program Files), never where DOTNET_ROOT points. -->
+    <StartupHookSupport>false</StartupHookSupport>
+    <AppHostDotNetSearch>Global</AppHostDotNetSearch>
   </PropertyGroup>
 
 </Project>

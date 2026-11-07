@@ -1,12 +1,19 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
+using Microsoft.Win32;
 
 namespace GearTray.Util;
 
 public static class Elevation
 {
     public const string TaskName = "GearTray";
+    private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\GearTray";
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool MoveFileExW(string existing, string? newName, int flags);
+    private const int MOVEFILE_DELAY_UNTIL_REBOOT = 0x4;
 
     public static bool IsAdmin
     {
@@ -39,17 +46,20 @@ public static class Elevation
     public static string InstallDir { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "GearTray");
     public static string InstalledExe => Path.Combine(InstallDir, "GearTray.exe");
+    /// <summary>Settings and log of a GearTray running with admin rights (see Log.Directory).</summary>
+    public static string DataDir => Path.Combine(InstallDir, "Data");
 
     /// <summary>
     /// Copy this exe to Program Files (only admins can change files there, so nobody can swap the file the
-    /// elevated task runs), add a Start menu shortcut, and register a logon task that runs it with highest
-    /// privileges. Must be called from an elevated process. Task XML is used so there is no 72-hour limit.
+    /// elevated task runs), add a Start menu shortcut and an entry in Settings > Apps > Installed apps, and register
+    /// a logon task that runs it with highest privileges. Must be called from an elevated process. Task XML is used
+    /// so there is no 72-hour limit.
     /// </summary>
     public static void InstallStartupTask()
     {
-        if (!string.Equals(Path.GetFullPath(ExePath), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase))
+        Directory.CreateDirectory(InstallDir);
+        if (!IsInstalledExe(ExePath))
         {
-            Directory.CreateDirectory(InstallDir);
             if (!UI.DeviceChangeWindow.AskRunningInstanceToExit(10_000)) Log.Warn("The running GearTray didn't exit when asked");
             // The signed PawnIO module for CPU temperature travels next to the exe when it's there.
             string module = Path.Combine(Path.GetDirectoryName(ExePath)!, "AMDFamily17.bin");
@@ -58,6 +68,7 @@ public static class Elevation
             catch (IOException ex) { throw new IOException("Couldn't update GearTray in Program Files. Exit the running GearTray first.", ex); }
         }
         CreateStartMenuShortcut(InstalledExe);
+        RegisterUninstallEntry();
 
         string user = WindowsIdentity.GetCurrent().Name;
         string xml = $"""
@@ -84,7 +95,9 @@ public static class Elevation
               <Actions Context="Author"><Exec><Command>{Escape(InstalledExe)}</Command><Arguments>--startup</Arguments></Exec></Actions>
             </Task>
             """;
-        string file = Path.Combine(Path.GetTempPath(), "GearTray-task.xml");
+        // Written to the install folder, not %TEMP%: any program of the user can change files in %TEMP% (and swap
+        // the task definition before schtasks reads it), only administrators can in Program Files.
+        string file = Path.Combine(InstallDir, "GearTray-task.xml");
         File.WriteAllText(file, xml, Encoding.Unicode);
         try
         {
@@ -100,11 +113,84 @@ public static class Elevation
         if (code != 0 && StartupTaskExists()) throw new InvalidOperationException($"schtasks failed ({code}): {output}");
     }
 
+    /// <summary>
+    /// The machine-wide half of uninstalling (must run elevated): stops the running GearTray, then removes the
+    /// logon task, the Start menu shortcut, the Installed apps entry and the files in Program Files, and the Data
+    /// folder in there if <paramref name="deleteData"/>. A file that is still in use (GearTray.exe, which the
+    /// uninstaller itself runs from) is renamed and left for Windows to delete at the next restart, together with
+    /// the then empty folder. Returns true when that happened. %APPDATA%\GearTray is not touched here: deleting in a
+    /// folder every program of the user can change is the non-elevated half's job, with the user's own rights.
+    /// </summary>
+    public static bool UninstallMachineWide(bool deleteData)
+    {
+        // Logs only when something goes wrong: every log line would (re)create the Data folder.
+        if (!UI.DeviceChangeWindow.AskRunningInstanceToExit(10_000)) Log.Warn("The running GearTray didn't exit when asked");
+        if (StartupTaskExists()) UninstallStartupTask();
+        try { File.Delete(StartMenuShortcut); } catch (Exception ex) { Log.Warn("Start menu shortcut: " + ex.Message); }
+        using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+            hklm.DeleteSubKeyTree(UninstallKey, throwOnMissingSubKey: false);
+
+        bool afterRestart = false;
+        if (Directory.Exists(InstallDir))
+        {
+            // Only administrators can create anything in this folder, so walking and deleting it is safe. A snapshot,
+            // not a live enumeration: the renamed leftover below must not come up again as a new entry.
+            foreach (var entry in new DirectoryInfo(InstallDir).GetFileSystemInfos())
+            {
+                if (!deleteData && string.Equals(entry.FullName, DataDir, StringComparison.OrdinalIgnoreCase)) continue;
+                try
+                {
+                    if (entry is DirectoryInfo dir) dir.Delete(recursive: true);
+                    else entry.Delete();
+                }
+                catch (Exception ex) when (entry is FileInfo && ex is IOException or UnauthorizedAccessException)
+                {
+                    // In use. A running exe can't be deleted but can be renamed: the leftover gets a name of its own,
+                    // so a GearTray installed again before the restart isn't deleted with it (the folder then isn't
+                    // empty at the restart and stays).
+                    string leftover = Path.Combine(InstallDir, $"{entry.Name}.{Guid.NewGuid():N}.old");
+                    File.Move(entry.FullName, leftover);
+                    if (!MoveFileExW(leftover, null, MOVEFILE_DELAY_UNTIL_REBOOT))
+                        throw new IOException($"Couldn't remove {entry.FullName}: {ex.Message}", ex);
+                    afterRestart = true;
+                }
+            }
+            if (!Directory.EnumerateFileSystemEntries(InstallDir).Any()) Directory.Delete(InstallDir);
+            else if (afterRestart) MoveFileExW(InstallDir, null, MOVEFILE_DELAY_UNTIL_REBOOT); // after the file's entry
+        }
+        return afterRestart;
+    }
+
+    private static bool IsInstalledExe(string path) =>
+        string.Equals(Path.GetFullPath(path), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase);
+
+    private static string StartMenuShortcut =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "GearTray.lnk");
+
+    /// <summary>The entry in Settings > Apps > Installed apps (and Control Panel's Programs and Features).</summary>
+    private static void RegisterUninstallEntry()
+    {
+        var version = typeof(Elevation).Assembly.GetName().Version;
+        long sizeKb = new DirectoryInfo(InstallDir).EnumerateFiles().Sum(f => f.Length) / 1024;
+        using var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+        using var key = hklm.CreateSubKey(UninstallKey);
+        key.SetValue("DisplayName", "GearTray");
+        key.SetValue("DisplayVersion", version?.ToString(3) ?? "");
+        key.SetValue("Publisher", "Jonas Henriksen");
+        key.SetValue("DisplayIcon", InstalledExe + ",0");
+        key.SetValue("InstallLocation", InstallDir);
+        key.SetValue("InstallDate", DateTime.Now.ToString("yyyyMMdd"));
+        key.SetValue("UninstallString", $"\"{InstalledExe}\" --uninstall");
+        key.SetValue("EstimatedSize", (int)Math.Min(sizeKb, int.MaxValue), RegistryValueKind.DWord);
+        key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+        key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+    }
+
     private static void CreateStartMenuShortcut(string target)
     {
         try
         {
-            string lnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "GearTray.lnk");
+            string lnk = StartMenuShortcut;
             var shellType = Type.GetTypeFromProgID("WScript.Shell");
             if (shellType is null) return;
             dynamic shell = Activator.CreateInstance(shellType)!;
@@ -121,7 +207,8 @@ public static class Elevation
 
     private static int RunSchtasks(string args, out string output)
     {
-        var psi = new ProcessStartInfo("schtasks.exe", args)
+        // Full path: a bare "schtasks.exe" is looked up in the exe's folder and the current folder before System32.
+        var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "schtasks.exe"), args)
         {
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,

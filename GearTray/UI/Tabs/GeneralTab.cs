@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using GearTray.Util;
 
 namespace GearTray.UI.Tabs;
@@ -65,6 +64,9 @@ internal sealed class GeneralTab : SettingsTab
         files.Span(Section.Line(
             Ui.Button("Open log", (_, _) => Open(Log.FilePath)),
             Ui.Button("Open settings folder", (_, _) => Open(Log.Directory))));
+        if (Elevation.IsAdmin)
+            files.Note($"With admin rights, GearTray keeps its settings and log in {Log.Directory}, where only administrators " +
+                       "can change them. They open with your normal rights, so you can read them there but not edit them.");
 
         var about = AddSection("about", "About");
         about.Note($"GearTray {Application.ProductVersion}. Device protocols follow these open-source projects: G-Helper and libratbag (ROG mouse), " +
@@ -96,9 +98,15 @@ internal sealed class GeneralTab : SettingsTab
 
     public override Task LoadAsync() => Task.CompletedTask;
 
+    /// <summary>Opens it with the user's normal rights, never GearTray's admin rights; else copies the path.</summary>
     private void Open(string path)
     {
-        try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
-        catch (Exception ex) { Status(ex.Message); }
+        try { ShellOpen.Open(path); }
+        catch (Exception ex)
+        {
+            Log.Warn($"Couldn't open {path}: {ex.Message}");
+            try { Clipboard.SetText(path); } catch (System.Runtime.InteropServices.ExternalException) { }
+            Status($"Couldn't open it with your normal rights. The path is copied: {path}");
+        }
     }
 }

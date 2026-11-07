@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.0 (2026-11-07)
+
+- **Installed apps**: `--install-startup` also adds GearTray to Settings >
+  Apps > Installed apps (version, publisher, size), and **Uninstall** there
+  removes it: it asks whether your settings and log should go too, then,
+  after one admin prompt, removes the logon task, the Start-menu shortcut, the
+  entry and `C:\Program Files\GearTray`. The exe the uninstaller runs from is
+  renamed and deleted by Windows at the next restart (renamed, so a GearTray
+  installed again before then isn't deleted with it). `%APPDATA%\GearTray` is
+  deleted with your normal rights, never with admin rights. `--uninstall` does
+  the same from the command line.
+- **Settings and log with admin rights** are kept in
+  `C:\Program Files\GearTray\Data`, which only administrators can change,
+  instead of `%APPDATA%\GearTray`, which every program you run can change: one
+  could have swapped the folder for a link and made the elevated GearTray
+  write or move other files, or planted a macro for it to type. The first
+  start with admin rights imports the settings from `%APPDATA%\GearTray`; runs
+  without admin rights keep using that folder.
+- **Open log** and **Open settings folder** open through the desktop's
+  Explorer, so the program showing them runs with your normal rights instead
+  of GearTray's admin rights (which program opens a file type is set in
+  per-user registry keys any program can change). If that fails, the path is
+  copied instead.
+- **Built to ignore** `DOTNET_STARTUP_HOOKS` and `DOTNET_ROOT`: the logon task
+  hands GearTray your environment variables, and these two could have loaded
+  other code into it with admin rights.
+- Safer install: the task definition is written to the install folder instead
+  of `%TEMP%`, and `schtasks.exe` is started by its full path instead of being
+  looked up.
+- `--open-test PATH` opens a file through Explorer the way those buttons do.
+
 ## 0.6.2 (2026-11-07)
 
 - The screen no longer gathers the battery, controller, game-mode and profile

@@ -21,6 +21,7 @@ namespace GearTray;
 ///   --xbox-light MODE [0-47]                  MODE = off|on|blinkfast|blinkslow|fadeslow|fadefast
 ///   --xbox-light-test                         brightest, very dim, slow fade, then Windows' level again
 ///   --install-startup / --uninstall-startup   (must run elevated)
+///   --open-test PATH                          open PATH through the desktop's Explorer, as the Open buttons do with admin rights
 /// Global: --trace (log every HID report), --out FILE. Several commands can be chained with ";;".
 /// </summary>
 internal static class Cli
@@ -28,7 +29,8 @@ internal static class Cli
     public static readonly string[] Commands =
         ["--probe", "--list-hid", "--mouse", "--mouse-light", "--kb-light", "--kb-gamemode", "--headset", "--install-startup", "--uninstall-startup",
          "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling", "--screen-preview", "--screen-test",
-         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--screen-speed", "--fps-test", "--cpu-temp", "--xbox", "--xbox-light", "--xbox-light-test"];
+         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--screen-speed", "--fps-test", "--cpu-temp", "--xbox", "--xbox-light", "--xbox-light-test",
+         "--open-test"];
 
     /// <summary>Runs one command, or several separated by ";;" (one elevation prompt for a whole test sequence).</summary>
     public static int Run(string[] args)
@@ -66,6 +68,10 @@ internal static class Cli
                 case "--uninstall-startup":
                     Elevation.UninstallStartupTask();
                     Console.WriteLine("Startup task removed.");
+                    return 0;
+                case "--open-test":
+                    ShellOpen.ThroughExplorer(rest[1]);
+                    Console.WriteLine($"Explorer was asked to open {rest[1]}");
                     return 0;
                 case "--sample-test":
                     return SampleTest();

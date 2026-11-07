@@ -96,8 +96,9 @@ GearTray needs administrator rights for one thing: Windows only lets an
 elevated process open the Razer keyboard's control channel. So it is
 installed to `C:\Program Files\GearTray` (only administrators can change files
 there, so nobody can swap the file that runs elevated) with a Start-menu
-shortcut, and a Task Scheduler task starts it with highest privileges at
-sign-in, without a UAC prompt.
+shortcut and an entry in Settings > Apps > Installed apps, and a Task
+Scheduler task starts it with highest privileges at sign-in, without a UAC
+prompt.
 
 ```bat
 build.bat
@@ -106,9 +107,17 @@ publish\GearTray.exe --install-startup      (run as administrator)
 
 To update, run the same two lines; the installer asks the running GearTray to
 exit before replacing it (versions before 0.3.0 have to be exited from the tray
-icon first). To remove it, untick "Start GearTray when I sign in" on the General tab,
-then delete `C:\Program Files\GearTray`, `%APPDATA%\GearTray` and the
-GearTray Start-menu shortcut.
+icon first).
+
+To remove it, choose **Uninstall** on GearTray in Settings > Apps > Installed
+apps (or run `GearTray.exe --uninstall`). It asks whether your settings and
+log should go too; then, after one admin prompt, it removes the logon task,
+the Start-menu shortcut, the Installed apps entry and
+`C:\Program Files\GearTray` (keeping its `Data` folder if you said no). The
+exe the uninstaller runs from can't be deleted while it runs, so it is renamed
+and Windows deletes it at the next restart. `%APPDATA%\GearTray` is deleted
+with your normal rights, never with admin rights. Unticking "Start GearTray
+when I sign in" on the General tab only removes the logon task.
 
 The CPU temperature on the stats page needs the PawnIO driver
 ([pawnio.eu](https://pawnio.eu), installer from
@@ -118,10 +127,37 @@ the signed `AMDFamily17.bin` from
 next to `GearTray.exe` (`--install-startup` copies it along). Without them the
 page simply leaves the CPU temperature out.
 
-Settings and the log are in `%APPDATA%\GearTray` (`settings.json`, `log.txt`).
-Mouse and headset settings are stored in the devices themselves; keyboard
-lighting is kept in `settings.json` because the keyboard can't report its
-current effect, and is put back after sleep, replugging or sign-in.
+With admin rights (the installed GearTray) the settings and the log
+(`settings.json`, `log.txt`) are in `C:\Program Files\GearTray\Data`: you can
+read them, only administrators can change them. Without admin rights they're
+in `%APPDATA%\GearTray`. The first start with admin rights since 0.7.0 imports
+the settings from `%APPDATA%\GearTray`; after that the installed GearTray
+doesn't use that folder, and it can be deleted. Mouse and headset settings are
+stored in the devices themselves; keyboard lighting is kept in `settings.json`
+because the keyboard can't report its current effect, and is put back after
+sleep, replugging or sign-in.
+
+## Running with admin rights
+
+A program running with admin rights has to be careful with everything the
+user's other programs can change: they run without admin rights and could use
+it to get them. GearTray:
+
+- runs from `C:\Program Files\GearTray` and keeps its settings and log in its
+  `Data` folder, both changeable by administrators only;
+- opens the log and the settings folder through the desktop's Explorer, so the
+  program showing them runs with your normal rights (which program opens a
+  file type is set in per-user registry keys any program can change);
+- writes the task definition into its own folder while installing, not into
+  `%TEMP%`, and starts `schtasks.exe` by its full path;
+- ignores `DOTNET_STARTUP_HOOKS` and `DOTNET_ROOT` (build settings in the
+  `.csproj`): the logon task hands it your environment variables, and these two
+  could have loaded other code into it.
+
+What's left: .NET reads a few more environment variables at start (profiler
+and diagnostics settings) that an app can't turn off. Closing those too would
+need a small separate admin service, with GearTray itself running without
+admin rights.
 
 ## Command line
 
@@ -157,6 +193,8 @@ whole test run).
 --sample-test                        screen sampler check (no device needed)
 --audio-test                         audio meter check (no device needed)
 --install-startup / --uninstall-startup
+--uninstall                          remove GearTray (what Installed apps runs)
+--open-test PATH                     open PATH through the desktop's Explorer, as the Open buttons do with admin rights
 --screenshot DIR                     render each settings tab to a PNG
 ```
 

@@ -22,6 +22,9 @@ internal static class Program
 
         try
         {
+            if (args.Length > 0 && args[0].Equals(Uninstaller.Command, StringComparison.OrdinalIgnoreCase))
+                return Uninstaller.Run(args);
+
             if (args.Length > 0 && Cli.Commands.Contains(args[0].ToLowerInvariant()))
                 return Cli.Run(args);
 
