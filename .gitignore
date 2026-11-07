@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------
+# Build output. build.bat publishes the single GearTray.exe into publish/;
+# bin/ and obj/ are the compiler's scratch space.
+# ---------------------------------------------------------------------
+publish/
+GearTray/publish/
+bin/
+obj/
+*.user
+.vs/
+
+# ---------------------------------------------------------------------
+# Git kept inside the project folder, the same arrangement as Wabbajack
+# Wizard: .mingit/ is a MinGit unpack and git.bat in the project root sits
+# in front of it, so nothing is installed machine-wide. Both stay local.
+# ---------------------------------------------------------------------
+.mingit/
+git.bat
+
+# Windows litter
+Thumbs.db
+desktop.ini
