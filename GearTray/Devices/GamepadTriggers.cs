@@ -48,15 +48,19 @@ public static unsafe class GamepadTriggers
     }
 
     /// <summary>
-    /// Sets the trigger motors (0–1) on every gamepad Windows.Gaming.Input lists. Returns how many took it, 0 when none
-    /// is listed (yet), -1 when the API is missing.
+    /// Sets all four motors (0–1: main left/right, trigger left/right) on every gamepad Windows.Gaming.Input lists.
+    /// Returns how many took it, 0 when none is listed (yet), -1 when the API is missing.
     /// </summary>
-    public static int Set(double left, double right)
+    public static int Set(double leftMotor, double rightMotor, double leftTrigger, double rightTrigger)
     {
         var statics = Statics();
         if (statics == IntPtr.Zero) return -1;
-        if (left > 0 || right > 0) _used = true;
-        var v = new GamepadVibration { LeftTrigger = Math.Clamp(left, 0, 1), RightTrigger = Math.Clamp(right, 0, 1) };
+        if (leftMotor > 0 || rightMotor > 0 || leftTrigger > 0 || rightTrigger > 0) _used = true;
+        var v = new GamepadVibration
+        {
+            LeftMotor = Math.Clamp(leftMotor, 0, 1), RightMotor = Math.Clamp(rightMotor, 0, 1),
+            LeftTrigger = Math.Clamp(leftTrigger, 0, 1), RightTrigger = Math.Clamp(rightTrigger, 0, 1),
+        };
         IntPtr view;
         // IGamepadStatics slot 10: get_Gamepads(out IVectorView<Gamepad>)
         if (((delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)(*(void***)statics)[10])(statics, &view) < 0 || view == IntPtr.Zero) return 0;
@@ -79,11 +83,11 @@ public static unsafe class GamepadTriggers
         finally { Release(view); }
     }
 
-    /// <summary>Stops trigger rumble if GearTray ever started it.</summary>
+    /// <summary>Stops everything this API started, if GearTray ever started anything.</summary>
     public static void Stop()
     {
         if (!_used) return;
-        try { Set(0, 0); }
+        try { Set(0, 0, 0, 0); }
         catch (Exception ex) { Log.Warn($"Stopping trigger rumble: {ex.Message}"); }
     }
 

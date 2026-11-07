@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 (2026-11-07)
+
+- Controller tab: the vibration test has Start and Stop buttons and runs until
+  you stop it (at most two minutes), on the motors you tick: left, right, left
+  trigger, right trigger. Strength and motors can be changed while it runs.
+
 ## 0.3.1 (2026-11-07)
 
 - Fixed: switching the keyboard from one of GearTray's effects (Ambient, Audio

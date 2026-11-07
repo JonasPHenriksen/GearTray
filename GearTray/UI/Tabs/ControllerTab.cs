@@ -26,13 +26,21 @@ internal sealed class ControllerTab : SettingsTab
     private readonly LabeledSlider _lightLevel = new(1, XboxGip.MaxBrightness,
         v => v == XboxGip.DefaultBrightness ? $"{v} of {XboxGip.MaxBrightness} (Windows' level)" : $"{v} of {XboxGip.MaxBrightness}");
     private readonly CheckBox _lightKeep = new() { Text = "Keep it: set it again whenever the controller connects", AutoSize = true };
+    private readonly CheckBox _vibLeft = new() { Text = "Left (heavy) motor", AutoSize = true, Checked = true };
+    private readonly CheckBox _vibRight = new() { Text = "Right (light) motor", AutoSize = true, Checked = true };
+    private readonly CheckBox _vibLeftTrigger = new() { Text = "Left trigger", AutoSize = true };
+    private readonly CheckBox _vibRightTrigger = new() { Text = "Right trigger", AutoSize = true };
+    private readonly Button _vibStart, _vibStop;
+    /// <summary>Re-sends the vibration every 200 ms while the test runs.</summary>
+    private readonly System.Windows.Forms.Timer _vibTimer = new() { Interval = 200 };
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 16 };
     private readonly Button _powerOff;
     private readonly List<(float L, float R)> _driftSamples = [];
-    private DateTime _driftUntil;
+    private DateTime _driftUntil, _vibUntil;
     private PadBattery? _lastBattery;
-    private int _rumbleRun;
-    private bool _firmwareRead, _firmwareBusy;
+    private int _vibSlot = -1;
+    private bool _firmwareRead, _firmwareBusy, _triggerWarned, _vibViaWgi;
+    private static readonly TimeSpan VibrationLimit = TimeSpan.FromMinutes(2);
 
     public ControllerTab(SettingsForm form, TrayContext tray) : base(form, tray, "controller", "Controller")
     {
@@ -55,15 +63,13 @@ internal sealed class ControllerTab : SettingsTab
 
         var rumble = AddSection("rumble", "Vibration test");
         rumble.Row("Strength", _strength);
-        rumble.Span(Section.Line(
-            Ui.Button("Left (heavy) motor", (_, _) => Rumble(1, 0, 0, 0)),
-            Ui.Button("Right (light) motor", (_, _) => Rumble(0, 1, 0, 0)),
-            Ui.Button("Both", (_, _) => Rumble(1, 1, 0, 0))));
-        rumble.Span(Section.Line(
-            Ui.Button("Left trigger", (_, _) => Rumble(0, 0, 1, 0)),
-            Ui.Button("Right trigger", (_, _) => Rumble(0, 0, 0, 1)),
-            Ui.Button("Both triggers", (_, _) => Rumble(0, 0, 1, 1))));
-        rumble.Note("Each test runs for one second. The trigger motors (Xbox One and Series controllers) go through Windows.Gaming.Input, which only works while this window is in front.");
+        rumble.Row("Motors", Section.Line(_vibLeft, _vibRight, _vibLeftTrigger, _vibRightTrigger));
+        _vibStart = Ui.Button("Start", (_, _) => StartVibration());
+        _vibStop = Ui.Button("Stop", (_, _) => StopVibration());
+        _vibStop.Enabled = false;
+        rumble.Span(Section.Line(_vibStart, _vibStop));
+        rumble.Note("Runs until you press Stop, leave this tab or close the window (at most two minutes). Strength and motors can be changed while it runs. The trigger motors (Xbox One and Series controllers) go through Windows.Gaming.Input, which only works while this window is in front.");
+        _vibTimer.Tick += (_, _) => VibrationTick();
 
         var light = AddSection("light", "Xbox button light");
         light.Row("Light", _lightMode);
@@ -76,7 +82,11 @@ internal sealed class ControllerTab : SettingsTab
 
         _strength.Value = Tray.Settings.Controller.TestStrength;
         _strength.ValueChanged += (_, _) => { Tray.Settings.Controller.TestStrength = _strength.Value; Tray.SaveSettings(); };
-        _slot.SelectedIndexChanged += (_, _) => UpdateStatus();
+        _slot.SelectedIndexChanged += (_, _) =>
+        {
+            if (_vibSlot >= 0 && _vibSlot != Slot) StopVibration();
+            UpdateStatus();
+        };
         _lightMode.SelectedIndexChanged += (_, _) => _lightLevel.Enabled = Ui.Value<XboxLedMode>(_lightMode) != XboxLedMode.Off;
         _timer.Tick += (_, _) => Tick();
         AddButton("Refresh", async () => { await LoadAsync(); LoadFirmware(fresh: true); });
@@ -96,6 +106,7 @@ internal sealed class ControllerTab : SettingsTab
         if (_slot.Items.Count == 0)
         {
             Info.Text = "No Xbox controller connected. Connect it by USB cable, Xbox Wireless Adapter or Bluetooth.";
+            StopVibration();
             EnableInputs(Body, false);
             _type.Text = _battery.Text = "";
             _firmware.Text = "";
@@ -104,6 +115,8 @@ internal sealed class ControllerTab : SettingsTab
         }
         EnableInputs(Body, true);
         _lightLevel.Enabled = Ui.Value<XboxLedMode>(_lightMode) != XboxLedMode.Off;
+        _vibStart.Enabled = _vibSlot < 0;
+        _vibStop.Enabled = _vibSlot >= 0;
         Ui.Select(_slot, keep >= 0 ? keep : _slot.Items[0] is Item<int> first ? first.Value : 0);
         if (_slot.SelectedIndex < 0) _slot.SelectedIndex = 0;
         Info.Text = names.Count > 0 ? string.Join(" · ", names) : "Xbox controller";
@@ -157,8 +170,7 @@ internal sealed class ControllerTab : SettingsTab
     public override void Deactivated()
     {
         _timer.Stop();
-        _rumbleRun++;
-        StopRumble();
+        StopVibration();
     }
 
     private void Tick()
@@ -192,41 +204,75 @@ internal sealed class ControllerTab : SettingsTab
         Log.Info($"Stick drift: left {l:0.0}%, right {r:0.0}%");
     }
 
-    private async void Rumble(double left, double right, double leftTrigger, double rightTrigger)
+    private void StartVibration()
     {
         int slot = Slot;
         if (slot < 0) return;
-        double k = _strength.Value / 100.0;
-        int run = ++_rumbleRun;
-        bool triggers = leftTrigger > 0 || rightTrigger > 0;
-        var until = DateTime.UtcNow.AddSeconds(1);
-        while (run == _rumbleRun && DateTime.UtcNow < until)
+        if (!(_vibLeft.Checked || _vibRight.Checked || _vibLeftTrigger.Checked || _vibRightTrigger.Checked))
         {
-            // Sent again every 200 ms, because a focus change can cut vibration short.
-            if (triggers)
-            {
-                int n = GamepadTriggers.Set(leftTrigger * k, rightTrigger * k);
-                if (n <= 0)
-                {
-                    Status(n < 0 ? "Windows.Gaming.Input isn't available on this PC, so the trigger motors can't be reached."
-                                 : "Windows hasn't listed the controller for trigger rumble yet. Try again in a moment, with this window in front.");
-                    break;
-                }
-            }
-            else if (!XInput.SetVibration(slot, left * k, right * k))
-            {
-                Status("The controller didn't accept the vibration command.");
-                break;
-            }
-            await Task.Delay(200);
+            Status("Tick at least one motor first.");
+            return;
         }
-        if (run == _rumbleRun) StopRumble(); // unless a newer test took over
+        _vibSlot = slot;
+        _vibUntil = DateTime.UtcNow + VibrationLimit;
+        _triggerWarned = false;
+        _vibStart.Enabled = false;
+        _vibStop.Enabled = true;
+        Status("Vibrating. Press Stop to end it.");
+        VibrationTick();
+        _vibTimer.Start();
     }
 
-    private void StopRumble()
+    /// <summary>
+    /// Sent again every 200 ms: picks up strength and motor changes, and a focus change can cut vibration short.
+    /// With a trigger ticked, all four motors go through Windows.Gaming.Input so the two APIs don't fight over the
+    /// main motors; otherwise XInput, which also works while the window is in the background.
+    /// </summary>
+    private void VibrationTick()
     {
-        if (Slot is >= 0 and var slot) XInput.SetVibration(slot, 0, 0);
+        if (_vibSlot < 0) return;
+        if (DateTime.UtcNow > _vibUntil)
+        {
+            StopVibration();
+            Status("The vibration test stopped after two minutes.");
+            return;
+        }
+        double k = _strength.Value / 100.0;
+        double left = _vibLeft.Checked ? k : 0, right = _vibRight.Checked ? k : 0;
+        if (_vibLeftTrigger.Checked || _vibRightTrigger.Checked)
+        {
+            if (!_vibViaWgi) XInput.SetVibration(_vibSlot, 0, 0); // hand the main motors over first
+            int n = GamepadTriggers.Set(left, right, _vibLeftTrigger.Checked ? k : 0, _vibRightTrigger.Checked ? k : 0);
+            _vibViaWgi = n > 0;
+            if (_vibViaWgi) return;
+            if (!_triggerWarned)
+            {
+                _triggerWarned = true;
+                Status(n < 0 ? "Windows.Gaming.Input isn't available on this PC, so the trigger motors can't be reached."
+                             : "Windows hasn't listed the controller for trigger rumble yet. Keep this window in front; it usually takes a second.");
+            }
+        }
+        else if (_vibViaWgi)
+        {
+            GamepadTriggers.Stop();
+            _vibViaWgi = false;
+        }
+        if (!XInput.SetVibration(_vibSlot, left, right))
+        {
+            StopVibration();
+            Status("The controller didn't accept the vibration command.");
+        }
+    }
+
+    private void StopVibration()
+    {
+        _vibTimer.Stop();
+        if (_vibSlot >= 0) XInput.SetVibration(_vibSlot, 0, 0);
         GamepadTriggers.Stop();
+        _vibSlot = -1;
+        _vibViaWgi = false;
+        _vibStart.Enabled = Slot >= 0;
+        _vibStop.Enabled = false;
     }
 
     private void LoadLight()
