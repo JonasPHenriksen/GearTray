@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 (2026-11-07)
+
+- **FPS** and the **1% low** (the frame rate of the slowest 1% of frames over
+  the last 10 s) of the game in front, counted from Windows' own graphics
+  events (DXGI and Direct3D 9 present calls, as PresentMon does). Nothing to
+  install; the trace runs only while a game does. Vulkan and OpenGL games
+  whose frames can't be counted show "–".
+- New PC stats layout: CPU | GPU | FPS columns with the numbers as big as
+  their column allows, temperatures (and the 1% low) beside the labels, and
+  VRAM and RAM with decimals, mirrored around the middle.
+- `--fps-test N` lists every process's present rate over N seconds.
+
 ## 0.4.2 (2026-11-07)
 
 - Base-station screen: seconds per page for the clock, Now playing and PC

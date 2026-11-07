@@ -28,7 +28,7 @@ internal static class Cli
     public static readonly string[] Commands =
         ["--probe", "--list-hid", "--mouse", "--mouse-light", "--kb-light", "--kb-gamemode", "--headset", "--install-startup", "--uninstall-startup",
          "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling", "--screen-preview", "--screen-test",
-         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--xbox", "--xbox-light", "--xbox-light-test"];
+         "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--fps-test", "--xbox", "--xbox-light", "--xbox-light-test"];
 
     /// <summary>Runs one command, or several separated by ";;" (one elevation prompt for a whole test sequence).</summary>
     public static int Run(string[] args)
@@ -75,6 +75,8 @@ internal static class Cli
                     return AudioTest();
                 case "--screen-data":
                     return ScreenData(rest.Count > 1 ? int.Parse(rest[1]) : 1);
+                case "--fps-test":
+                    return FpsTest(rest.Count > 1 ? int.Parse(rest[1]) : 5);
                 case "--xbox":
                     return XboxReport();
                 case "--xbox-light":
@@ -306,14 +308,46 @@ internal static class Cli
         var now = DateTime.Now;
         var media = new MediaInfo("Everlong (Acoustic Version)", "Foo Fighters", "Spotify", true, TimeSpan.FromSeconds(83), TimeSpan.FromSeconds(231), TimeSpan.FromSeconds(83));
         var noTimeline = media with { Title = "Alysa Liu wins the Olympic gold medal", Artist = "Team USA", App = "Firefox", Duration = TimeSpan.Zero, PlayingFor = TimeSpan.FromSeconds(42) };
-        var stats = new PcStatsInfo(23, 18.4, 63.6, 97, 64, 9.1, 16);
+        var stats = new PcStatsInfo(23, 18.4, 63.6, 97, 64, 9.1, 16, CpuTemp: 61, Fps: 143, FpsLow: 98);
         string stem = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileNameWithoutExtension(file));
         SavePreview(Effects.BaseStationScreen.Render(SampleDashboard, now), file);
         SavePreview(Effects.BaseStationScreen.RenderMedia(media, now), stem + "-media.png");
         SavePreview(Effects.BaseStationScreen.RenderMedia(noTimeline, now), stem + "-media-no-timeline.png");
-        SavePreview(Effects.BaseStationScreen.RenderStats(SampleDashboard, stats, now), stem + "-stats.png");
+        SaveGrid(
+        [
+            ("PC stats", Effects.BaseStationScreen.RenderStats(SampleDashboard, stats, now)),
+            ("Worst case: GPU 100%, 240 fps", Effects.BaseStationScreen.RenderStats(SampleDashboard, stats with { Cpu = 41, Gpu = 100, Fps = 240, FpsLow = 187 }, now)),
+            ("A game whose frames can't be counted", Effects.BaseStationScreen.RenderStats(SampleDashboard, stats with { Fps = null, FpsLow = null }, now)),
+        ], stem + "-stats.png");
         SavePreview(Effects.BaseStationScreen.RenderPopup("Game mode", "On", now), stem + "-popup.png");
         return 0;
+    }
+
+    /// <summary>Several screen pages side by side (4× size, two per row), each with a caption, in one PNG.</summary>
+    private static void SaveGrid(List<(string Caption, bool[] Pixels)> tiles, string file)
+    {
+        const int s = 4, gap = 24, caption = 34;
+        int tw = ArctisNovaProWireless.ScreenWidth * s, th = ArctisNovaProWireless.ScreenHeight * s;
+        int rows = (tiles.Count + 1) / 2;
+        using var bmp = new Bitmap(2 * tw + 3 * gap, rows * (th + caption + gap) + gap);
+        using (var g = Graphics.FromImage(bmp))
+        using (var font = new Font("Segoe UI Semibold", 18f, GraphicsUnit.Pixel))
+        {
+            g.Clear(Color.FromArgb(45, 45, 48));
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            for (int i = 0; i < tiles.Count; i++)
+            {
+                int x0 = gap + (i % 2) * (tw + gap), y0 = gap + (i / 2) * (th + caption + gap);
+                g.DrawString(tiles[i].Caption, font, Brushes.White, x0, y0);
+                g.FillRectangle(new SolidBrush(Color.FromArgb(10, 10, 10)), x0, y0 + caption, tw, th);
+                var px = tiles[i].Pixels;
+                for (int y = 0; y < ArctisNovaProWireless.ScreenHeight; y++)
+                    for (int x = 0; x < ArctisNovaProWireless.ScreenWidth; x++)
+                        if (px[x + y * ArctisNovaProWireless.ScreenWidth]) g.FillRectangle(Brushes.White, x0 + x * s, y0 + caption + y * s, s - 1, s - 1);
+            }
+        }
+        bmp.Save(file, System.Drawing.Imaging.ImageFormat.Png);
+        Console.WriteLine($"Saved {file}");
     }
 
     private static void SavePreview(bool[] px, string file)
@@ -347,6 +381,22 @@ internal static class Cli
         screen.Stop();
         mgr.RunAsync(() => { }).Wait(2000); // let the restore go out
         Console.WriteLine("Base station screen test done; normal screen restored.");
+        return 0;
+    }
+
+    /// <summary>Present calls per second of every process over N seconds, from the same events the FPS counter uses (admin).</summary>
+    private static int FpsTest(int seconds)
+    {
+        Console.WriteLine($"Counting DXGI / Direct3D 9 presents for {seconds} s…");
+        var rates = FpsCounter.Survey(seconds);
+        if (rates.Count == 0) Console.WriteLine("No presents seen (needs admin rights; nothing drawing with DirectX?).");
+        foreach (var (pid, perSecond) in rates.Take(10))
+        {
+            string name;
+            try { name = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName; }
+            catch (ArgumentException) { name = "(exited)"; }
+            Console.WriteLine($"   {perSecond,7:0.0}/s  {name} ({pid})");
+        }
         return 0;
     }
 

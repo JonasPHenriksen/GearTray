@@ -12,7 +12,7 @@ namespace GearTray.Effects;
 public sealed record DashboardData(int? Mouse, bool MouseCharging, int? Headset, bool HeadsetCharging, int? Spare,
     string? Controller, bool GameMode, string? Profile,
     string? Game = null, DateTime? GameStarted = null, bool ShowMedia = true, bool ShowStats = true,
-    int ClockSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8);
+    int ClockSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8, uint GamePid = 0);
 
 public enum ScreenPage { Clock, Media, Stats }
 
@@ -61,6 +61,7 @@ public sealed class BaseStationScreen : IDisposable
         _running = false;
         _timer?.Dispose();
         _timer = null;
+        FpsCounter.Stop();
         Restore();
         Log.Info("Base station screen: back to the normal screen");
     }
@@ -116,7 +117,13 @@ public sealed class BaseStationScreen : IDisposable
         var media = d.ShowMedia ? MediaSession.Read() : null;
         bool mediaOn = media is { Playing: true } && (media.Title.Length > 0 || media.Artist.Length > 0);
         bool statsOn = d.ShowStats && d.Game is not null;
-        var stats = statsOn ? PcStats.Read() : null;
+        FpsCounter.Watch(statsOn ? d.GamePid : 0);
+        PcStatsInfo? stats = null;
+        if (statsOn)
+        {
+            var (fps, low) = FpsCounter.Read();
+            stats = PcStats.Read() with { Fps = fps, FpsLow = low };
+        }
 
         if (mediaOn)
         {
@@ -201,30 +208,61 @@ public sealed class BaseStationScreen : IDisposable
         }
     });
 
-    /// <summary>PC stats while a game runs: the game and how long it's been running, CPU and GPU load, temperature, memory.</summary>
+    /// <summary>
+    /// PC stats while a game runs: the game and how long it has been running; CPU | GPU | FPS columns with the
+    /// temperatures (or the 1% low) beside the labels and the numbers as big as their column allows; VRAM and RAM.
+    /// </summary>
     public static bool[] RenderStats(DashboardData d, PcStatsInfo s, DateTime now) => Draw(now, g =>
     {
         using var head = new Font("Segoe UI Semibold", 11f, GraphicsUnit.Pixel);
         using var small = new Font("Segoe UI", 10f, GraphicsUnit.Pixel);
-        using var big = new Font("Segoe UI Semibold", 20f, GraphicsUnit.Pixel);
         using var oneLine = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
+        using var centred = new StringFormat { Alignment = StringAlignment.Center, FormatFlags = StringFormatFlags.NoWrap };
+
         string played = d.GameStarted is DateTime started ? Played(now - started) : "";
         float playedWidth = played.Length > 0 ? g.MeasureString(played, small).Width : 0;
-        g.DrawString(d.Game ?? "", head, Brushes.White, new RectangleF(0, -1, W - playedWidth - 1, 15), oneLine);
-        if (played.Length > 0) g.DrawString(played, small, Brushes.White, W - playedWidth + 2, 0);
+        g.DrawString(d.Game ?? "", head, Brushes.White, new RectangleF(0, -1, W - playedWidth - 3, 15), oneLine);
+        if (played.Length > 0) g.DrawString(played, small, Brushes.White, W - playedWidth, 0); // two pixels in from the edge
 
-        g.DrawString("CPU", small, Brushes.White, 0, 14);
-        g.DrawString($"{s.Cpu}%", big, Brushes.White, -2, 21);
-        if (s.Gpu is int gpu)
+        Column(g, small, 0, s.CpuTemp is int ct ? $"CPU {ct}°" : "CPU", s.Cpu.ToString(), "%");
+        Column(g, small, 44, s.GpuTemp is int gt ? $"GPU {gt}°" : "GPU", s.Gpu is int gp ? gp.ToString() : "–", s.Gpu is null ? "" : "%");
+        Column(g, small, 88, s.FpsLow is int low ? $"1% {low}" : "FPS", s.Fps is int fp ? fp.ToString() : "–", "");
+
+        // VRAM centred in the left half and RAM in the right half, mirrored around the middle.
+        string ram = $"RAM {s.RamUsedGb:0.0}G";
+        if (s.VramUsedGb is double vram)
         {
-            g.DrawString(s.GpuTemp is int temp ? $"GPU  {temp}°C" : "GPU", small, Brushes.White, 66, 14);
-            g.DrawString($"{gpu}%", big, Brushes.White, 64, 21);
+            g.DrawString($"VRAM {vram:0.0}G", small, Brushes.White, new RectangleF(0, 51, W / 2f, 13), centred);
+            g.DrawString(ram, small, Brushes.White, new RectangleF(W / 2f, 51, W / 2f, 13), centred);
         }
-
-        string ram = $"RAM {s.RamUsedGb:0}/{s.RamTotalGb:0}G";
-        string bottom = s.VramUsedGb is double vram ? $"VRAM {vram:0.0}G   {ram}" : ram;
-        g.DrawString(bottom, small, Brushes.White, new RectangleF(0, 51, W + 4, 13), oneLine);
+        else g.DrawString(ram, small, Brushes.White, new RectangleF(0, 51, W, 13), centred);
     });
+
+    /// <summary>
+    /// One column of the stats page: the small label, then the number in the largest size (up to 30 px) that
+    /// fits 37 of the column's 44 pixels, with its unit ("%") at half size on the same baseline. "100%" just comes out
+    /// a little smaller than "97%".
+    /// </summary>
+    private static void Column(Graphics g, Font small, float x, string caption, string number, string unit)
+    {
+        g.DrawString(caption, small, Brushes.White, x, 13);
+        var format = StringFormat.GenericTypographic;
+        for (float size = 30; size >= 12; size -= 1)
+        {
+            using var font = new Font("Segoe UI Semibold", size, GraphicsUnit.Pixel);
+            using var unitFont = new Font("Segoe UI Semibold", Math.Max(9f, size * 0.5f), GraphicsUnit.Pixel);
+            float numberWidth = g.MeasureString(number, font, PointF.Empty, format).Width;
+            float unitWidth = unit.Length > 0 ? g.MeasureString(unit, unitFont, PointF.Empty, format).Width + 1 : 0;
+            if (numberWidth + unitWidth > 37 && size > 12) continue;
+            // Everything sits on one baseline, just above the memory line.
+            const float baseline = 47;
+            g.DrawString(number, font, Brushes.White, x, baseline - Ascent(font), format);
+            if (unit.Length > 0) g.DrawString(unit, unitFont, Brushes.White, x + numberWidth + 1, baseline - Ascent(unitFont), format);
+            return;
+        }
+    }
+
+    private static float Ascent(Font f) => f.FontFamily.GetCellAscent(f.Style) * f.Size / f.FontFamily.GetEmHeight(f.Style);
 
     /// <summary>A short message in the middle of the screen.</summary>
     public static bool[] RenderPopup(string title, string text, DateTime now) => Draw(now, g =>

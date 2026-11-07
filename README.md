@@ -63,8 +63,10 @@ GearTray does those parts itself:
 - **Base-station screen**: a clock, the date and every battery on the Arctis
   base station's screen, with pages that take turns with it only while they
   apply: now playing (from Windows' media controls) while something plays, and
-  PC stats (CPU, GPU load and temperature, video memory, RAM, the game and how
-  long it has run) while a game runs. Short pop-ups show game mode, program
+  PC stats (the game's FPS, CPU, GPU load and temperature, video memory, RAM,
+  the game and how long it has run) while a game runs. FPS comes from
+  Windows' own graphics events (ETW: DXGI and Direct3D 9 presents), as
+  PresentMon does it. Short pop-ups show game mode, program
   profile and controller changes. Shifted a pixel each minute against burn-in;
   it steps aside while you turn a knob and gives the screen back when switched
   off.
@@ -134,7 +136,8 @@ whole test run).
 --headset noise=anc sidetone=1 ...   noise, transparency, sidetone, mic, micled, autooff, oled, eq, eqbands
 --screen-test SECONDS                GearTray's screen with its page rotation on the base station, then the screen back
 --screen-preview FILE.png            every screen page as a picture (no device needed)
---screen-data                        what Now playing and PC stats read right now
+--screen-data [N]                    what Now playing and PC stats read, N times a second apart
+--fps-test SECONDS                   present calls per second of every process (admin)
 --xbox                               Xbox controllers: XInput state, battery, ids, firmware
 --xbox-light MODE [0-47]             off|on|blinkfast|blinkslow|fadeslow|fadefast
 --xbox-light-test                    brightest, very dim, slow fade, then Windows' level again

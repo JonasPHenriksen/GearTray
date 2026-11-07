@@ -2,8 +2,12 @@ using System.Runtime.InteropServices;
 
 namespace GearTray.Util;
 
-/// <summary>One reading of the PC's load. GPU values are null without an NVIDIA graphics card.</summary>
-public sealed record PcStatsInfo(int Cpu, double RamUsedGb, double RamTotalGb, int? Gpu, int? GpuTemp, double? VramUsedGb, double? VramTotalGb);
+/// <summary>
+/// One reading of the PC's load. GPU values are null without an NVIDIA graphics card, CpuTemp without the PawnIO
+/// driver, Fps when the game's frames can't be counted; FpsLow is the 1% low frame rate.
+/// </summary>
+public sealed record PcStatsInfo(int Cpu, double RamUsedGb, double RamTotalGb, int? Gpu, int? GpuTemp, double? VramUsedGb, double? VramTotalGb,
+    int? CpuTemp = null, int? Fps = null, int? FpsLow = null);
 
 /// <summary>
 /// CPU load (GetSystemTimes, since the previous reading), memory (GlobalMemoryStatusEx) and, on NVIDIA cards, GPU
