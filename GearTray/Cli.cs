@@ -24,6 +24,7 @@ namespace GearTray;
 ///   --open-test PATH                          open PATH through the desktop's Explorer, as the Open buttons do with admin rights
 ///   --write-icon FILE.ico [PREVIEW.png]       write GearTray.ico (and a preview sheet) from the logo drawing
 ///   --theme-preview FILE.png                  sample window in the light and the dark look, captured from the screen
+///   --weather PLACE                           look a place up and print its weather now (Open-Meteo)
 /// Global: --trace (log every HID report), --out FILE. Several commands can be chained with ";;".
 /// </summary>
 internal static class Cli
@@ -32,7 +33,7 @@ internal static class Cli
         ["--probe", "--list-hid", "--mouse", "--mouse-light", "--kb-light", "--kb-gamemode", "--headset", "--install-startup", "--uninstall-startup",
          "--sample-test", "--audio-test", "--kb-frame-test", "--kb-effect-test", "--kb-polling", "--screen-preview", "--screen-test",
          "--mouse-button-test", "--kb-keys-test", "--kb-exit-test", "--screen-data", "--screen-speed", "--fps-test", "--cpu-temp", "--xbox", "--xbox-light", "--xbox-light-test",
-         "--open-test", "--write-icon", "--theme-preview"];
+         "--open-test", "--write-icon", "--theme-preview", "--weather"];
 
     /// <summary>Runs one command, or several separated by ";;" (one elevation prompt for a whole test sequence).</summary>
     public static int Run(string[] args)
@@ -75,6 +76,16 @@ internal static class Cli
                     ShellOpen.ThroughExplorer(rest[1]);
                     Console.WriteLine($"Explorer was asked to open {rest[1]}");
                     return 0;
+                case "--weather":
+                {
+                    string name = string.Join(' ', rest.Skip(1));
+                    var place = Weather.FindPlace(name).GetAwaiter().GetResult();
+                    if (place is null) { Console.WriteLine($"No place found for \"{name}\""); return 1; }
+                    Console.WriteLine(FormattableString.Invariant($"{place.Label}: {place.Latitude}, {place.Longitude}"));
+                    var w = Weather.Current(place.Latitude, place.Longitude).GetAwaiter().GetResult();
+                    Console.WriteLine(FormattableString.Invariant($"Now: {w.Temperature} °C, weather code {w.Code}, {(w.IsDay ? "day" : "night")}"));
+                    return 0;
+                }
                 case "--theme-preview":
                     ApplicationConfiguration.Initialize(); // DPI awareness, so the screen capture lines up
                     using (var sheet = UI.ThemePreview.Capture()) sheet.Save(rest[1], System.Drawing.Imaging.ImageFormat.Png);
@@ -346,8 +357,18 @@ internal static class Cli
         var bare = home with { Server = Effects.ServerState.NotSet, HeadsetOn = false };
         SavePreview(Effects.BaseStationScreen.RenderHome(home, homeTime), file);
         SavePreview(Effects.BaseStationScreen.RenderHome(widest, lateTime), stem + "-home-widest.png");
-        SavePreview(Effects.BaseStationScreen.RenderMedia(media, now), stem + "-media.png");
-        SavePreview(Effects.BaseStationScreen.RenderMedia(noTimeline, now), stem + "-media-no-timeline.png");
+        var wave = SampleWave();
+        SavePreview(Effects.BaseStationScreen.RenderMedia(media, wave, now), stem + "-media.png");
+        SavePreview(Effects.BaseStationScreen.RenderMedia(noTimeline, wave, now), stem + "-media-no-timeline.png");
+        SaveGrid(
+        [
+            ("Now playing", Effects.BaseStationScreen.RenderMedia(media, wave, now)),
+            ("Firefox, position not known yet", Effects.BaseStationScreen.RenderMedia(noTimeline, wave, now)),
+            ("A quiet moment (silence is a dotted line)", Effects.BaseStationScreen.RenderMedia(media, wave.Select((p, i) => i < 40 ? p : 0f).ToArray(), now)),
+            ("First seconds (the wave fills in from the right)", Effects.BaseStationScreen.RenderMedia(media, wave[^12..], now)),
+            ("A long artist name", Effects.BaseStationScreen.RenderMedia(media with { Artist = "Florence + The Machine & Kendrick Lamar" }, wave, now)),
+            ("No artist (some players)", Effects.BaseStationScreen.RenderMedia(noTimeline with { Artist = "" }, wave, now)),
+        ], stem + "-media-grid.png");
         SaveGrid(
         [
             ("Home", Effects.BaseStationScreen.RenderHome(home, homeTime)),
@@ -361,7 +382,31 @@ internal static class Cli
             ("No average yet (first seconds, or frames can't be counted)", Effects.BaseStationScreen.RenderStats(Played83(1), stats with { FpsAvg = null }, PreviewTime(1))),
         ], stem + "-stats.png");
         SavePreview(Effects.BaseStationScreen.RenderPopup("Game mode", "On", now), stem + "-popup.png");
+
+        // The weather in the sound meter's place, once a place is set on the Headset tab.
+        SaveGrid(
+        [
+            ("Partly cloudy, 7 °C", Effects.BaseStationScreen.RenderHome(home with { WeatherSet = true, Weather = new(7.4, 2, true) }, homeTime)),
+            ("Widest: 100% volume, snow at -28 °C", Effects.BaseStationScreen.RenderHome(widest with { WeatherSet = true, Weather = new(-27.6, 73, true) }, lateTime)),
+            ("Rain, 12 °C", Effects.BaseStationScreen.RenderHome(home with { Volume = 64, WeatherSet = true, Weather = new(11.5, 63, true) }, homeTime)),
+            ("Headset off, clear night, 4 °C", Effects.BaseStationScreen.RenderHome(bare with { WeatherSet = true, Weather = new(3.6, 0, false) }, longDate)),
+            ("First seconds (no answer yet)", Effects.BaseStationScreen.RenderHome(home with { WeatherSet = true }, homeTime)),
+            ("No place set: the sound meter, as before", Effects.BaseStationScreen.RenderHome(home, homeTime)),
+        ], stem + "-home-weather.png");
+        using (var icons = Effects.BaseStationScreen.WeatherIconSheet()) icons.Save(stem + "-weather-icons.png");
         return 0;
+    }
+
+    /// <summary>
+    /// 13 s of made-up sound-meter peaks for the now-playing wave (one per 200 ms tick), in the range the real meter
+    /// gave for a video: about 0.03 to 0.35.
+    /// </summary>
+    private static float[] SampleWave()
+    {
+        var r = new Random(7);
+        return Enumerable.Range(0, 64)
+            .Select(i => (float)Math.Clamp(0.06 + 0.26 * Math.Abs(Math.Sin(i * 0.45)) * (0.7 + 0.3 * Math.Sin(i * 0.11)) + (r.NextDouble() - 0.5) * 0.08, 0.02, 0.35))
+            .ToArray();
     }
 
     /// <summary>Several screen pages side by side (4× size, two per row), each with a caption, in one PNG.</summary>

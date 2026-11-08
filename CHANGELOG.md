@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.0 (2026-11-08)
+
+- **New now-playing page** on the base-station screen: the title; the artist
+  with the player (Spotify, Firefox…) on the right; the sound of the last 13
+  seconds as a wave that moves with it (one bar per 200 ms, newest on the
+  right, scaled to the loudest moment in view so it fills its band at any
+  volume; silence is a dotted line); and the elapsed and remaining time with a
+  slim bar and knob between them. Long titles end in "…" (they had two lines).
+  While the player hasn't said where in the track it is, "playing for", as
+  before.
+- The sound meter is now also read while the now-playing page shows (the
+  home page already read it), so that page is sent up to five times a second
+  while there's sound.
+- **Weather on the home page**, in the sound meter's place: a 12-px picture
+  (sun or moon, partly cloudy, cloud, fog, drizzle, rain, snow, thunder) and
+  the temperature ("7°C"), "…" until the first answer. Type a town or city
+  under "Weather for" on the Headset tab; it's looked up a moment after you
+  stop typing and shown as found ("Copenhagen, Capital Region, Denmark").
+  The weather comes from Open-Meteo (free, no account) every 15 minutes, over
+  HTTPS, with answers of at most 1 MB read within 10 seconds; after a failure
+  it tries again in 2 minutes and keeps the last answer for up to 2 hours.
+  Without a place, the sound meter stays.
+- `--weather PLACE` looks a place up and prints its weather now.
+
 ## 0.8.0 (2026-11-07)
 
 - **Dark mode**: a switch at the bottom right of the settings window, where

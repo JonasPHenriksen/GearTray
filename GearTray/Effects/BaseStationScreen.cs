@@ -7,10 +7,12 @@ namespace GearTray.Effects;
 
 /// <summary>
 /// What the base-station screen needs from the tray. Game is the running game's name, if any. The *Seconds values are
-/// how long each page stays up when more than one page applies. PingHost is the server to ping (empty: none).
+/// how long each page stays up when more than one page applies. PingHost is the server to ping (empty: none);
+/// WeatherLatitude/Longitude the place for the home page's weather (null: none).
 /// </summary>
 public sealed record DashboardData(string? Game = null, DateTime? GameStarted = null, bool ShowMedia = true, bool ShowStats = true,
-    int HomeSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8, uint GamePid = 0, string? PingHost = null);
+    int HomeSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8, uint GamePid = 0, string? PingHost = null,
+    double? WeatherLatitude = null, double? WeatherLongitude = null);
 
 public enum ScreenPage { Home, Media, Stats }
 
@@ -19,9 +21,9 @@ public enum ScreenPage { Home, Media, Stats }
 /// volume and a live sound meter) is always there; "now playing" joins while something plays and PC stats while a
 /// game runs, taking turns for the number of seconds set per page, and a new song jumps straight to its page. Pop-ups
 /// (game mode, profile, controller) cut in for a few seconds. Composed five times a second but only sent when the
-/// picture changed (the sound meter moves; everything else changes about once a second); steps aside for ~3.5 s after
-/// a knob is turned (the base station shows its own volume screen then), shifts the picture by a pixel every minute
-/// against burn-in, and hands the screen back to the base station when stopped.
+/// picture changed (the sound meter and the now-playing wave move; everything else changes about once a second);
+/// steps aside for ~3.5 s after a knob is turned (the base station shows its own volume screen then), shifts the
+/// picture by a pixel every minute against burn-in, and hands the screen back to the base station when stopped.
 /// </summary>
 public sealed partial class BaseStationScreen : IDisposable
 {
@@ -43,9 +45,11 @@ public sealed partial class BaseStationScreen : IDisposable
     private MediaInfo? _media;
     private PcStatsInfo? _stats;
     private (double? Down, double? Up) _net;
-    // The sound meter, read every tick while the home page shows; fast attack, smooth fall.
+    // The sound meter, read every tick while the home or the now-playing page shows: the home page's level (fast
+    // attack, smooth fall) and the plain peaks of the last W/2 ticks for the now-playing wave.
     private AudioMeter? _meter;
     private float _level;
+    private readonly List<float> _wave = new(W / 2 + 1);
     // Headset state read on the device thread every 3 s and after the dial is turned.
     private volatile LiveHeadset? _live;
     private DateTime _liveReadAt, _nextLiveRead;
@@ -61,6 +65,15 @@ public sealed partial class BaseStationScreen : IDisposable
     private volatile string? _pingHost;
     private volatile bool _pingKnown, _pingOn;
     private int _pinging, _pingMisses;
+
+    // The weather for the home page, asked for in the background every 15 minutes and right away when the place
+    // changes. After a failure it tries again in 2 minutes (logged once per run of failures); the last answer is kept
+    // for up to 2 hours.
+    private volatile string? _weatherPlace;
+    private volatile WeatherNow? _weather;
+    private DateTime _weatherNext, _weatherGot;
+    private int _weatherBusy;
+    private volatile bool _weatherFailing;
 
     public BaseStationScreen(DeviceManager devices, Func<DashboardData> data)
     {
@@ -183,6 +196,7 @@ public sealed partial class BaseStationScreen : IDisposable
             _net = NetworkSpeed.Read();
             if (!string.IsNullOrWhiteSpace(d.PingHost)) Ping(d.PingHost.Trim());
             else _pingHost = null;
+            RefreshWeather(d.WeatherLatitude, d.WeatherLongitude);
         }
         var media = _media;
         bool mediaOn = media is { Playing: true } && (media.Title.Length > 0 || media.Artist.Length > 0);
@@ -194,26 +208,73 @@ public sealed partial class BaseStationScreen : IDisposable
             _lastTrack = track;
         }
         _page = NextPage(_page, mediaOn, statsOn && _stats is not null, d);
-        return _page switch
-        {
-            ScreenPage.Media when mediaOn => RenderMedia(media!, now),
-            ScreenPage.Stats when _stats is not null => RenderStats(d, _stats, now),
-            _ => RenderHome(HomeNow(d), now),
-        };
+        bool showMedia = _page == ScreenPage.Media && mediaOn, showStats = _page == ScreenPage.Stats && _stats is not null;
+        if (!showStats) ReadMeter();
+        if (showMedia) return RenderMedia(media!, _wave, now);
+        if (showStats) return RenderStats(d, _stats!, now);
+        return RenderHome(HomeNow(d), now);
     }
 
-    /// <summary>The home page's live values; the sound meter is read here, every tick.</summary>
-    private HomeData HomeNow(DashboardData d)
+    /// <summary>One reading of the sound meter, for the home page's level and the now-playing wave.</summary>
+    private void ReadMeter()
     {
         _meter ??= new AudioMeter();
         var (left, right) = _meter.Read();
         float target = Math.Max(Level(left), Level(right));
         _level = Math.Max(target, _level * 0.7f); // fast attack, smooth fall
         if (_level < 0.02f) _level = 0;
+        _wave.Add(Math.Max(left, right));
+        if (_wave.Count > W / 2) _wave.RemoveAt(0);
+    }
+
+    /// <summary>The home page's live values.</summary>
+    private HomeData HomeNow(DashboardData d)
+    {
         var live = _live;
         var server = string.IsNullOrWhiteSpace(d.PingHost) ? ServerState.NotSet
             : !_pingKnown ? ServerState.Checking : _pingOn ? ServerState.On : ServerState.Off;
-        return new HomeData(live?.Online ?? false, live?.Volume, _net.Down, _net.Up, _level, server);
+        return new HomeData(live?.Online ?? false, live?.Volume, _net.Down, _net.Up, _level, server,
+            WeatherSet: _weatherPlace is not null, Weather: _weather);
+    }
+
+    /// <summary>Called once a second: starts a background request for the weather when one is due.</summary>
+    private void RefreshWeather(double? latitude, double? longitude)
+    {
+        if (latitude is not double lat || longitude is not double lon)
+        {
+            _weatherPlace = null;
+            _weather = null;
+            return;
+        }
+        var now = DateTime.UtcNow;
+        string place = FormattableString.Invariant($"{lat:0.####},{lon:0.####}");
+        if (place != _weatherPlace)
+        {
+            _weatherPlace = place;
+            _weather = null;
+            _weatherNext = now;
+        }
+        if (_weather is not null && now - _weatherGot > TimeSpan.FromHours(2)) _weather = null; // too old to show
+        if (now < _weatherNext || Interlocked.Exchange(ref _weatherBusy, 1) == 1) return;
+        _weatherNext = now.AddMinutes(15);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var weather = await Weather.Current(lat, lon);
+                if (place != _weatherPlace) return; // the place was changed meanwhile; its own request follows
+                _weather = weather;
+                _weatherGot = DateTime.UtcNow;
+                _weatherFailing = false;
+            }
+            catch (Exception ex)
+            {
+                if (!_weatherFailing) Log.Warn("Weather: " + ex.Message);
+                _weatherFailing = true;
+                _weatherNext = DateTime.UtcNow.AddMinutes(2);
+            }
+            finally { Volatile.Write(ref _weatherBusy, 0); }
+        });
     }
 
     /// <summary>
@@ -277,34 +338,7 @@ public sealed partial class BaseStationScreen : IDisposable
 
     // ---------- pages ----------
 
-    /// <summary>Now playing: title (two lines), artist, elapsed and remaining time, progress bar.</summary>
-    public static bool[] RenderMedia(MediaInfo m, DateTime now) => Draw(now, g =>
-    {
-        using var titleFont = new Font("Segoe UI Semibold", 12f, GraphicsUnit.Pixel);
-        using var small = new Font("Segoe UI", 10f, GraphicsUnit.Pixel);
-        using var wrap = new StringFormat { Trimming = StringTrimming.EllipsisWord, FormatFlags = StringFormatFlags.LineLimit };
-        using var oneLine = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
-        string title = m.Title.Length > 0 ? m.Title : m.Artist;
-        string second = m.Title.Length > 0 && m.Artist.Length > 0 ? m.Artist : m.App;
-        g.DrawString(title, titleFont, Brushes.White, new RectangleF(0, -2, W, 32), wrap);
-        g.DrawString(second, small, Brushes.White, new RectangleF(0, 30, W, 13), oneLine);
-        if (m.Duration > TimeSpan.Zero)
-        {
-            g.DrawString(Time(m.Position), small, Brushes.White, 0, 43);
-            string left = "-" + Time(m.Duration - m.Position);
-            g.DrawString(left, small, Brushes.White, W - g.MeasureString(left, small).Width + 2, 43);
-            g.DrawLine(Pens.White, 0, 60, W - 1, 60);
-            int done = (int)Math.Round((W - 1) * Math.Clamp(m.Position / m.Duration, 0, 1));
-            if (done > 0) g.FillRectangle(Brushes.White, 0, 58, done, 5);
-        }
-        else
-        {
-            // The player hasn't said where in the track it is (Firefox only does when you pause or skip).
-            g.DrawString("playing for " + Time(m.PlayingFor), small, Brushes.White, 0, 43);
-            if (m.App.Length > 0 && second != m.App)
-                g.DrawString(m.App, small, Brushes.White, W - g.MeasureString(m.App, small).Width + 2, 43);
-        }
-    });
+    // Now playing: BaseStationScreen.Media.cs
 
     /// <summary>
     /// PC stats while a game runs: the game and how long it has been running; CPU | GPU | FPS columns with the

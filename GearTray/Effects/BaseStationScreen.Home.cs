@@ -3,9 +3,12 @@ namespace GearTray.Effects;
 /// <summary>Whether the server set to ping answers. NotSet: no server set; Checking: no answer yet.</summary>
 public enum ServerState { NotSet, Checking, On, Off }
 
-/// <summary>What the home page shows besides the time and date. SoundLevel is 0–1 (left and right combined).</summary>
+/// <summary>
+/// What the home page shows besides the time and date. SoundLevel is 0–1 (left and right combined). With a weather
+/// place set (WeatherSet), the weather takes the sound meter's place: Weather, or "…" until the first answer.
+/// </summary>
 public sealed record HomeData(bool HeadsetOn, int? Volume, double? DownMBps, double? UpMBps, float SoundLevel,
-    ServerState Server = ServerState.NotSet);
+    ServerState Server = ServerState.NotSet, bool WeatherSet = false, WeatherNow? Weather = null);
 
 public sealed partial class BaseStationScreen
 {
@@ -18,8 +21,9 @@ public sealed partial class BaseStationScreen
     /// <summary>
     /// The home page: a clock with seconds; the date, short with "Server: On/Off" beside it (each centred in its half,
     /// like the speeds below) or in full when no server is set; download and upload speed; and the headset row: a volume
-    /// bar with its percentage and a live sound meter beside it, or "Headset off" with a crossed-out headset. The clock
-    /// is 24 px and everything else 11 px semibold, on baselines 14 px apart.
+    /// bar with its percentage, or "Headset off" with a crossed-out headset, and at its right end the weather outside
+    /// (picture and temperature) when a place is set, else a live sound meter. The clock is 24 px and everything else
+    /// 11 px semibold, on baselines 14 px apart.
     /// </summary>
     public static bool[] RenderHome(HomeData h, DateTime now) => Draw(now, g =>
     {
@@ -59,6 +63,7 @@ public sealed partial class BaseStationScreen
         {
             g.DrawLine(Pens.White, 1, iconTop + 11, 11, iconTop + 1);
             Pieces(g, 16, row4, true, new Piece(text, "Headset off"));
+            if (h.WeatherSet) WeatherAtRight(g, text, row4, h.Weather);
             return;
         }
         const float barX = 16, barW = 30, barH = 8, barTop = row4 - barH;
@@ -68,6 +73,11 @@ public sealed partial class BaseStationScreen
         const float percentX = barX + barW + 3;
         if (h.Volume is int v) Pieces(g, percentX, row4, true, new Piece(text, v.ToString()), new Piece(text, "%"));
         else Pieces(g, percentX, row4, true, new Piece(text, "–"));
+        if (h.WeatherSet)
+        {
+            WeatherAtRight(g, text, row4, h.Weather);
+            return;
+        }
         // The meter starts after room for "100%", so the widest value never runs into it, and ends 2 px in like the text.
         float meterX = percentX + Pieces(g, 0, 0, false, new Piece(text, "100"), new Piece(text, "%")) + 3;
         SoundMeter(g, meterX, barTop, W - 2 - meterX, barH, h.SoundLevel);

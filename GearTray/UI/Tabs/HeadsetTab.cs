@@ -37,6 +37,9 @@ internal sealed class HeadsetTab : SettingsTab
     private readonly CheckBox _screenPopups = new() { Text = "Pop-ups for game mode, program profiles and the controller", AutoSize = true };
     private readonly NumericUpDown _secHome = PageSeconds(), _secMedia = PageSeconds(), _secStats = PageSeconds();
     private readonly TextBox _pingHost = new() { Width = 130, PlaceholderText = "e.g. 192.168.50.10" };
+    private readonly TextBox _weatherPlace = new() { Width = 130, PlaceholderText = "e.g. Copenhagen" };
+    private readonly Label _weatherFound = Section.Caption("");
+    private readonly System.Windows.Forms.Timer _weatherLookup = new() { Interval = 900 }; // after the last key
 
     private static NumericUpDown PageSeconds() => new() { Minimum = 2, Maximum = 300, Width = 52, Margin = new Padding(3, 5, 10, 3) };
     private readonly Label _firmware = new() { AutoSize = true, MaximumSize = new Size(560, 0) };
@@ -116,11 +119,13 @@ internal sealed class HeadsetTab : SettingsTab
         screen.Row("Seconds per page", Section.Line(
             Section.Caption("Home"), _secHome, Section.Caption("Now playing"), _secMedia, Section.Caption("PC stats"), _secStats));
         screen.Row("Server to ping", Section.Line(_pingHost, Section.Caption("IP address or name; leave empty for none")));
+        screen.Row("Weather for", Section.Line(_weatherPlace, _weatherFound));
         screen.Note("Replaces the base station's normal screen while GearTray runs. The home page (clock, date, download and upload " +
-                    "speed, headset volume and a live sound meter) is always there; now playing and PC stats join it only while they " +
-                    "apply, and the pages take turns, each staying up for the seconds set above (a new song shows right away). The " +
-                    "server is pinged every second and shows next to the date as \"Server: On\", or \"Off\" after two missed answers " +
-                    "in a row. The screen steps aside for a few seconds whenever you turn a knob, shifts by a pixel every minute " +
+                    "speed, headset volume, and the weather or a live sound meter) is always there; now playing and PC stats join it " +
+                    "only while they apply, and the pages take turns, each staying up for the seconds set above (a new song shows " +
+                    "right away). The server is pinged every second and shows next to the date as \"Server: On\", or \"Off\" after " +
+                    "two missed answers in a row. The weather comes from Open-Meteo (open-meteo.com, free, no account) every 15 " +
+                    "minutes. The screen steps aside for a few seconds whenever you turn a knob, shifts by a pixel every minute " +
                     "against burn-in, and gives the screen back when you untick it, exit GearTray or the PC sleeps.");
         var screenSettings = Tray.Settings.HeadsetScreen;
         _dashboard.Checked = screenSettings.Dashboard;
@@ -135,9 +140,38 @@ internal sealed class HeadsetTab : SettingsTab
         _secStats.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.PcStatsSeconds = (int)_secStats.Value; Tray.SaveSettings(); };
         _pingHost.Text = screenSettings.PingHost;
         _pingHost.TextChanged += (_, _) => { Tray.Settings.HeadsetScreen.PingHost = _pingHost.Text.Trim(); Tray.SaveSettings(); };
+        const string weatherHint = "a town or city; leave empty for the sound meter";
+        _weatherPlace.Text = screenSettings.WeatherPlace;
+        _weatherFound.Text = screenSettings.WeatherLatitude is not null ? screenSettings.WeatherFound
+            : screenSettings.WeatherPlace.Length > 0 ? "not found" : weatherHint;
+        _weatherPlace.TextChanged += (_, _) => { _weatherLookup.Stop(); _weatherLookup.Start(); };
+        _weatherLookup.Tick += async (_, _) =>
+        {
+            _weatherLookup.Stop();
+            if (_weatherPlace.IsDisposed) return;
+            string typed = _weatherPlace.Text.Trim();
+            var s = Tray.Settings.HeadsetScreen;
+            if (typed == s.WeatherPlace && (typed.Length == 0 || s.WeatherLatitude is not null)) return; // nothing new
+            WeatherPlace? found = null;
+            string? failed = null;
+            if (typed.Length > 0)
+            {
+                _weatherFound.Text = "looking it up…";
+                try { found = await Weather.FindPlace(typed); }
+                catch (Exception ex) { failed = ex.Message; }
+                if (!_weatherPlace.IsDisposed && _weatherPlace.Text.Trim() != typed) return; // typed on; that lookup follows
+            }
+            s.WeatherPlace = typed;
+            s.WeatherFound = found?.Label ?? "";
+            s.WeatherLatitude = found?.Latitude;
+            s.WeatherLongitude = found?.Longitude;
+            Tray.SaveSettings();
+            if (_weatherFound.IsDisposed) return;
+            _weatherFound.Text = typed.Length == 0 ? weatherHint : found?.Label ?? (failed is null ? "not found" : "couldn't look it up: " + failed);
+        };
         void UpdatePageBoxes() =>
-            _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled =
-            _secHome.Enabled = _secMedia.Enabled = _secStats.Enabled = _pingHost.Enabled = _dashboard.Checked;
+            _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled = _secHome.Enabled = _secMedia.Enabled =
+            _secStats.Enabled = _pingHost.Enabled = _weatherPlace.Enabled = _dashboard.Checked;
         UpdatePageBoxes();
         _dashboard.CheckedChanged += (_, _) =>
         {

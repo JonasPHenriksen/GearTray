@@ -69,10 +69,15 @@ GearTray does those parts itself:
   warning color once the battery drops below the limit.
 - **Base-station screen**: GearTray's own home page on the Arctis base
   station's screen: the clock with seconds, the date, download and upload
-  speed, the headset's volume beside a live sound meter (or "Headset off"),
+  speed, the headset's volume (or "Headset off") beside the weather outside,
+  a picture and the temperature, when you've typed a town or city under
+  "Weather for" on the Headset tab (from Open-Meteo, open-meteo.com: free, no
+  account, every 15 minutes), or beside a live sound meter when you haven't,
   and, if you set one, whether a server answers ping ("Server: On" or "Off",
   checked every second). Pages take turns with it only while they
-  apply: now playing (from Windows' media controls) while something plays, and
+  apply: now playing (from Windows' media controls: the title, the artist and
+  the player, the sound of the last 13 seconds as a moving wave, and the time
+  with a slim bar) while something plays, and
   PC stats (the game's FPS, CPU, GPU load and temperature, video memory, RAM,
   the game and how long it has run) while a game runs. FPS comes from
   Windows' own graphics events (ETW: DXGI and Direct3D 9 presents), as
@@ -204,6 +209,7 @@ whole test run).
 --open-test PATH                     open PATH through the desktop's Explorer, as the Open buttons do with admin rights
 --write-icon FILE.ico [PREVIEW.png]  write the app icon (and a sheet of all its sizes) from the logo drawing
 --theme-preview FILE.png             a sample window and menu in the light and the dark look, captured from the screen
+--weather PLACE                      look a place up and print its weather now (Open-Meteo)
 --screenshot DIR                     render each settings tab to a PNG
 ```
 
