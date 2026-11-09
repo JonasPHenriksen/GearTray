@@ -8,20 +8,21 @@ namespace GearTray.Effects;
 /// <summary>
 /// What the base-station screen needs from the tray. Game is the running game's name, if any. The *Seconds values are
 /// how long each page stays up when more than one page applies. PingHost is the server to ping (empty: none);
-/// WeatherLatitude/Longitude the place for the home page's weather (null: none).
+/// WeatherLatitude/Longitude the place for the home page's weather (null: none); MouseBattery the mouse's last known
+/// battery (null: no mouse, or not read yet).
 /// </summary>
 public sealed record DashboardData(string? Game = null, DateTime? GameStarted = null, bool ShowMedia = true, bool ShowStats = true,
     int HomeSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8, uint GamePid = 0, string? PingHost = null,
-    double? WeatherLatitude = null, double? WeatherLongitude = null);
+    double? WeatherLatitude = null, double? WeatherLongitude = null, BatteryInfo? MouseBattery = null);
 
 public enum ScreenPage { Home, Media, Stats }
 
 /// <summary>
-/// GearTray's own screen on the Arctis base station's 128×64 OLED. The home page (clock, date, network speed, headset
-/// volume and a live sound meter) is always there; "now playing" joins while something plays and PC stats while a
+/// GearTray's own screen on the Arctis base station's 128×64 OLED. The home page (clock, date, network speed, volume,
+/// headset and mouse battery, weather) is always there; "now playing" joins while something plays and PC stats while a
 /// game runs, taking turns for the number of seconds set per page, and a new song jumps straight to its page. Pop-ups
 /// (game mode, profile, controller) cut in for a few seconds. Composed five times a second but only sent when the
-/// picture changed (the sound meter and the now-playing wave move; everything else changes about once a second);
+/// picture changed (the now-playing wave moves; everything else changes about once a second);
 /// steps aside for ~3.5 s after a knob is turned (the base station shows its own volume screen then), shifts the
 /// picture by a pixel every minute against burn-in, and hands the screen back to the base station when stopped.
 /// </summary>
@@ -45,10 +46,9 @@ public sealed partial class BaseStationScreen : IDisposable
     private MediaInfo? _media;
     private PcStatsInfo? _stats;
     private (double? Down, double? Up) _net;
-    // The sound meter, read every tick while the home or the now-playing page shows: the home page's level (fast
-    // attack, smooth fall) and the plain peaks of the last W/2 ticks for the now-playing wave.
+    // The sound meter, read every tick while the home or the now-playing page shows, so the now-playing wave (the
+    // peaks of the last W/2 ticks) is already full when that page comes up.
     private AudioMeter? _meter;
-    private float _level;
     private readonly List<float> _wave = new(W / 2 + 1);
     // Headset state read on the device thread every 3 s and after the dial is turned.
     private volatile LiveHeadset? _live;
@@ -58,7 +58,7 @@ public sealed partial class BaseStationScreen : IDisposable
     private DateTime _lastSentAt;
     private volatile bool _forceSend;
 
-    private sealed record LiveHeadset(bool Online, int? Volume);
+    private sealed record LiveHeadset(bool Online, int? Volume, BatteryInfo? Battery);
 
     // The server pinged for the home page, once a second in the background along with the other readings. It turns
     // Off only after two missed answers in a row, so a single lost packet doesn't flash it.
@@ -135,7 +135,7 @@ public sealed partial class BaseStationScreen : IDisposable
         try { frame = Compose(_data(), DateTime.Now); }
         catch (Exception ex) { Log.Warn("Base station screen render: " + ex.Message); Volatile.Write(ref _busy, 0); return; }
 
-        // Send only the halves that changed (the sound meter lives in the right half); everything after a pause, after
+        // Send only the halves that changed; everything after a pause, after
         // the base station showed its own screen, or every 10 s as a keep-alive.
         var nowUtc = DateTime.UtcNow;
         var last = _lastFrame;
@@ -153,8 +153,8 @@ public sealed partial class BaseStationScreen : IDisposable
                 h.DrainEvents();
                 if (liveDue || h.LastKnobUse > _liveReadAt)
                 {
-                    var (online, volume) = h.ReadLive();
-                    _live = new LiveHeadset(online, volume);
+                    var (online, volume, battery) = h.ReadLive();
+                    _live = new LiveHeadset(online, volume, battery);
                     _liveReadAt = DateTime.UtcNow;
                     _nextLiveRead = _liveReadAt.AddSeconds(3);
                 }
@@ -215,14 +215,11 @@ public sealed partial class BaseStationScreen : IDisposable
         return RenderHome(HomeNow(d), now);
     }
 
-    /// <summary>One reading of the sound meter, for the home page's level and the now-playing wave.</summary>
+    /// <summary>One reading of the sound meter, for the now-playing wave.</summary>
     private void ReadMeter()
     {
         _meter ??= new AudioMeter();
         var (left, right) = _meter.Read();
-        float target = Math.Max(Level(left), Level(right));
-        _level = Math.Max(target, _level * 0.7f); // fast attack, smooth fall
-        if (_level < 0.02f) _level = 0;
         _wave.Add(Math.Max(left, right));
         if (_wave.Count > W / 2) _wave.RemoveAt(0);
     }
@@ -233,8 +230,8 @@ public sealed partial class BaseStationScreen : IDisposable
         var live = _live;
         var server = string.IsNullOrWhiteSpace(d.PingHost) ? ServerState.NotSet
             : !_pingKnown ? ServerState.Checking : _pingOn ? ServerState.On : ServerState.Off;
-        return new HomeData(live?.Online ?? false, live?.Volume, _net.Down, _net.Up, _level, server,
-            WeatherSet: _weatherPlace is not null, Weather: _weather);
+        return new HomeData(live?.Online ?? false, live?.Volume, _net.Down, _net.Up, server,
+            WeatherSet: _weatherPlace is not null, Weather: _weather, HeadsetBattery: live?.Battery, MouseBattery: d.MouseBattery);
     }
 
     /// <summary>Called once a second: starts a background request for the weather when one is due.</summary>
@@ -312,10 +309,6 @@ public sealed partial class BaseStationScreen : IDisposable
             if (!a.AsSpan(y * W + half * 64, 64).SequenceEqual(b.AsSpan(y * W + half * 64, 64))) return true;
         return false;
     }
-
-    /// <summary>Peak 0–1 → 0–1 on a −48…0 dB scale, which matches how loud things sound.</summary>
-    private static float Level(float peak) =>
-        peak <= 0.0001f ? 0 : Math.Clamp((20f * MathF.Log10(peak) + 48f) / 48f, 0f, 1f);
 
     private ScreenPage NextPage(ScreenPage current, bool media, bool stats, DashboardData d)
     {

@@ -5,26 +5,6 @@ public sealed record WeatherNow(double Temperature, int Code, bool IsDay);
 
 public sealed partial class BaseStationScreen
 {
-    /// <summary>
-    /// The weather at the right end of the headset row, on that row's baseline: its picture and the temperature
-    /// ("7°C"), or "…" while there's no answer yet.
-    /// </summary>
-    private static void WeatherAtRight(Graphics g, Font text, float baseline, WeatherNow? w)
-    {
-        if (w is null)
-        {
-            var waiting = new Piece(text, "…");
-            Pieces(g, W - 2 - Pieces(g, 0, 0, false, waiting), baseline, true, waiting);
-            return;
-        }
-        // Whole degrees, never "-0"; a hyphen for minus (Segoe UI's minus sign leaves a gap before the digits).
-        int degrees = (int)Math.Round(w.Temperature, MidpointRounding.AwayFromZero);
-        var temperature = new Piece(text, degrees.ToString(System.Globalization.CultureInfo.InvariantCulture) + "°C");
-        float x = W - 2 - Pieces(g, 0, 0, false, temperature);
-        Pieces(g, x, baseline, true, temperature);
-        WeatherIcon(g, (int)Math.Round(x - 12 - 3), (int)Math.Round(baseline - 10), w.Code, w.IsDay);
-    }
-
     private enum Sky { Clear, PartlyCloudy, Cloudy, Fog, Drizzle, Rain, Snow, Thunder }
 
     /// <summary>WMO weather codes (as Open-Meteo gives them) to the eight pictures.</summary>

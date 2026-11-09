@@ -333,7 +333,7 @@ internal static class Cli
         });
     }
 
-    private static readonly Effects.DashboardData SampleDashboard = new("ELDEN RING", DateTime.Now.AddMinutes(-83));
+    private static readonly Effects.DashboardData SampleDashboard = new("ELDEN RING", DateTime.Now.AddMinutes(-83), MouseBattery: new(64, false));
 
     /// <summary>
     /// Render every base-station page to PNGs (4× size) without touching the device: FILE is the home page, and
@@ -346,12 +346,18 @@ internal static class Cli
         var noTimeline = media with { Title = "Alysa Liu wins the Olympic gold medal", Artist = "Team USA", App = "Firefox", Duration = TimeSpan.Zero, PlayingFor = TimeSpan.FromSeconds(42) };
         var stats = new PcStatsInfo(23, 18.4, 63.6, 97, 64, 9.1, 16, CpuTemp: 61, Fps: 143, FpsLow: 98, FpsAvg: 141);
         string stem = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileNameWithoutExtension(file));
-        var home = new Effects.HomeData(true, 38, 12.3, 0.4, 0.66f, Effects.ServerState.On);
+        // A server, a weather place, and both batteries known.
+        var home = new Effects.HomeData(true, 38, 12.3, 0.4, Effects.ServerState.On, WeatherSet: true, Weather: new(7.4, 2, true),
+            HeadsetBattery: new(88, false), MouseBattery: new(64, false));
         var homeTime = now;
         // The widest of everything: 23:58:58 on "Wed 30 May" (drawn a pixel right and down by the burn-in shift),
-        // "Server: Off", 118 MB/s, 100% and a full meter.
+        // "Server: Off", 118 MB/s, and 100 for the volume and both batteries with 12 °C rain.
         var lateTime = new DateTime(2029, 5, 30, 23, 58, 58);
-        var widest = home with { Server = Effects.ServerState.Off, Volume = 100, DownMBps = 118, UpMBps = 9.9, SoundLevel = 1 };
+        var widest = home with
+        {
+            Server = Effects.ServerState.Off, Volume = 100, DownMBps = 118, UpMBps = 9.9,
+            HeadsetBattery = new(100, false), MouseBattery = new(100, false), Weather = new(12.2, 63, true),
+        };
         // No server: the longest full date ("Wednesday 30 September" doesn't fit, so the month is shortened).
         var longDate = new DateTime(2026, 9, 30, 23, 58, 58);
         var bare = home with { Server = Effects.ServerState.NotSet, HeadsetOn = false };
@@ -374,7 +380,7 @@ internal static class Cli
             ("Home", Effects.BaseStationScreen.RenderHome(home, homeTime)),
             ("Widest values", Effects.BaseStationScreen.RenderHome(widest, lateTime)),
             ("No server, headset off", Effects.BaseStationScreen.RenderHome(bare, longDate)),
-            ("First second (no answer yet)", Effects.BaseStationScreen.RenderHome(home with { Server = Effects.ServerState.Checking }, homeTime)),
+            ("First second (no answers yet)", Effects.BaseStationScreen.RenderHome(home with { Server = Effects.ServerState.Checking, Weather = null, HeadsetBattery = null }, homeTime)),
         ], stem + "-home.png");
         SaveGrid(
         [
@@ -383,16 +389,16 @@ internal static class Cli
         ], stem + "-stats.png");
         SavePreview(Effects.BaseStationScreen.RenderPopup("Game mode", "On", now), stem + "-popup.png");
 
-        // The weather in the sound meter's place, once a place is set on the Headset tab.
+        // The bottom row (volume, headset battery, mouse battery, weather) in its other states.
         SaveGrid(
         [
-            ("Partly cloudy, 7 °C", Effects.BaseStationScreen.RenderHome(home with { WeatherSet = true, Weather = new(7.4, 2, true) }, homeTime)),
-            ("Widest: 100% volume, snow at -28 °C", Effects.BaseStationScreen.RenderHome(widest with { WeatherSet = true, Weather = new(-27.6, 73, true) }, lateTime)),
-            ("Rain, 12 °C", Effects.BaseStationScreen.RenderHome(home with { Volume = 64, WeatherSet = true, Weather = new(11.5, 63, true) }, homeTime)),
-            ("Headset off, clear night, 4 °C", Effects.BaseStationScreen.RenderHome(bare with { WeatherSet = true, Weather = new(3.6, 0, false) }, longDate)),
-            ("First seconds (no answer yet)", Effects.BaseStationScreen.RenderHome(home with { WeatherSet = true }, homeTime)),
-            ("No place set: the sound meter, as before", Effects.BaseStationScreen.RenderHome(home, homeTime)),
-        ], stem + "-home-weather.png");
+            ("Mouse charging, 41", Effects.BaseStationScreen.RenderHome(home with { MouseBattery = new(41, true) }, homeTime)),
+            ("Headset charging, 50", Effects.BaseStationScreen.RenderHome(home with { HeadsetBattery = new(50, true) }, homeTime)),
+            ("Headset off, clear night, 4 °C", Effects.BaseStationScreen.RenderHome(home with { HeadsetOn = false, Weather = new(3.6, 0, false) }, homeTime)),
+            ("No mouse (or not read yet)", Effects.BaseStationScreen.RenderHome(home with { MouseBattery = null }, homeTime)),
+            ("No weather place set", Effects.BaseStationScreen.RenderHome(home with { WeatherSet = false, Weather = null }, homeTime)),
+            ("Extreme: three 100s, charging, snow at -28 °C", Effects.BaseStationScreen.RenderHome(widest with { MouseBattery = new(100, true), Weather = new(-27.6, 73, true) }, lateTime)),
+        ], stem + "-home-bottom.png");
         using (var icons = Effects.BaseStationScreen.WeatherIconSheet()) icons.Save(stem + "-weather-icons.png");
         return 0;
     }
@@ -512,14 +518,14 @@ internal static class Cli
         var clock = new System.Diagnostics.Stopwatch();
         for (int i = 0; i < 30; i++)
         {
-            var frame = Effects.BaseStationScreen.RenderHome(new Effects.HomeData(true, 40, 1.0, 0.1, (i % 12) / 11f), DateTime.Now);
-            bool both = i < 12; // the first pictures whole, then only the right half (where the sound meter is)
+            var frame = Effects.BaseStationScreen.RenderHome(new Effects.HomeData(true, 40, 1.0, 0.1), DateTime.Now);
+            bool both = i < 12; // the first pictures whole, then only the right half
             mgr.Run(() => { clock.Restart(); h.DrawScreen(frame, left: both, right: true); clock.Stop(); return 0; });
             (both ? full : half).Add(clock.Elapsed.TotalMilliseconds);
         }
         mgr.Run(() => { h.RestoreScreen(); return 0; });
         var live = mgr.Run(() => h.ReadLive());
-        Console.WriteLine($"Headset connected: {live.Online}, volume {live.Volume?.ToString() ?? "?"}%");
+        Console.WriteLine($"Headset connected: {live.Online}, volume {live.Volume?.ToString() ?? "?"}%, battery {Fmt(live.Battery)}");
         Console.WriteLine($"Whole screen: average {full.Average():0.0} ms (fastest {full.Min():0.0}, slowest {full.Max():0.0})");
         Console.WriteLine($"Right half only: average {half.Average():0.0} ms (fastest {half.Min():0.0}, slowest {half.Max():0.0})");
         Console.WriteLine($"Sound meter at 5 updates a second: {half.Average() * 5 / 10:0.0}% of the device thread's time.");

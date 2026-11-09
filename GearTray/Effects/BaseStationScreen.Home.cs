@@ -1,36 +1,38 @@
+using GearTray.Devices;
+
 namespace GearTray.Effects;
 
 /// <summary>Whether the server set to ping answers. NotSet: no server set; Checking: no answer yet.</summary>
 public enum ServerState { NotSet, Checking, On, Off }
 
 /// <summary>
-/// What the home page shows besides the time and date. SoundLevel is 0–1 (left and right combined). With a weather
-/// place set (WeatherSet), the weather takes the sound meter's place: Weather, or "…" until the first answer.
+/// What the home page shows besides the time and date. Volume is the base station's dial (0–100). With a weather
+/// place set (WeatherSet), the weather goes at the end of the bottom row: Weather, or "…" until the first answer.
+/// HeadsetBattery and MouseBattery are null while not known; the mouse is then left out.
 /// </summary>
-public sealed record HomeData(bool HeadsetOn, int? Volume, double? DownMBps, double? UpMBps, float SoundLevel,
-    ServerState Server = ServerState.NotSet, bool WeatherSet = false, WeatherNow? Weather = null);
+public sealed record HomeData(bool HeadsetOn, int? Volume, double? DownMBps, double? UpMBps,
+    ServerState Server = ServerState.NotSet, bool WeatherSet = false, WeatherNow? Weather = null,
+    BatteryInfo? HeadsetBattery = null, BatteryInfo? MouseBattery = null);
 
 public sealed partial class BaseStationScreen
 {
     // Segoe MDL2 Assets glyphs (part of Windows 10 and 11).
-    private const string IconHeadset = "", IconDown = "", IconUp = "";
+    private const string IconDown = "", IconUp = "";
 
     /// <summary>Text in one font, drawn after a gap; the pieces of a line share one baseline.</summary>
     private readonly record struct Piece(Font Font, string Text, float Gap = 0);
 
     /// <summary>
     /// The home page: a clock with seconds; the date, short with "Server: On/Off" beside it (each centred in its half,
-    /// like the speeds below) or in full when no server is set; download and upload speed; and the headset row: a volume
-    /// bar with its percentage, or "Headset off" with a crossed-out headset, and at its right end the weather outside
-    /// (picture and temperature) when a place is set, else a live sound meter. The clock is 24 px and everything else
-    /// 11 px semibold, on baselines 14 px apart.
+    /// like the speeds below) or in full when no server is set; download and upload speed; and the bottom row: volume,
+    /// headset battery, mouse battery and the weather (see BottomRow). The clock is 24 px and everything else 11 px
+    /// semibold, on baselines 14 px apart.
     /// </summary>
     public static bool[] RenderHome(HomeData h, DateTime now) => Draw(now, g =>
     {
         using var text = new Font("Segoe UI Semibold", 11f, GraphicsUnit.Pixel);
         using var icons = new Font("Segoe MDL2 Assets", 12f, GraphicsUnit.Pixel);
         using var clock = new Font("Segoe UI Semibold", 24f, GraphicsUnit.Pixel);
-        var format = StringFormat.GenericTypographic;
         const float space = 3; // between a number and its unit, and after "Server:"
 
         // Baselines: the clock's, then three rows 14 pixels apart.
@@ -56,31 +58,7 @@ public sealed partial class BaseStationScreen
         NetHalf(g, icons, text, space, IconDown, h.DownMBps, 0, row3);
         NetHalf(g, icons, text, space, IconUp, h.UpMBps, W / 2f, row3);
 
-        // The headset row; the volume bar and the meter are as tall as the capitals.
-        float iconTop = IconTop(row4, text);
-        g.DrawString(IconHeadset, icons, Brushes.White, 0, iconTop, format);
-        if (!h.HeadsetOn)
-        {
-            g.DrawLine(Pens.White, 1, iconTop + 11, 11, iconTop + 1);
-            Pieces(g, 16, row4, true, new Piece(text, "Headset off"));
-            if (h.WeatherSet) WeatherAtRight(g, text, row4, h.Weather);
-            return;
-        }
-        const float barX = 16, barW = 30, barH = 8, barTop = row4 - barH;
-        g.DrawRectangle(Pens.White, barX, barTop, barW, barH - 1);
-        if (h.Volume is int vol && vol > 0)
-            g.FillRectangle(Brushes.White, barX + 1, barTop + 1, (barW - 1) * Math.Clamp(vol, 0, 100) / 100f, barH - 2);
-        const float percentX = barX + barW + 3;
-        if (h.Volume is int v) Pieces(g, percentX, row4, true, new Piece(text, v.ToString()), new Piece(text, "%"));
-        else Pieces(g, percentX, row4, true, new Piece(text, "–"));
-        if (h.WeatherSet)
-        {
-            WeatherAtRight(g, text, row4, h.Weather);
-            return;
-        }
-        // The meter starts after room for "100%", so the widest value never runs into it, and ends 2 px in like the text.
-        float meterX = percentX + Pieces(g, 0, 0, false, new Piece(text, "100"), new Piece(text, "%")) + 3;
-        SoundMeter(g, meterX, barTop, W - 2 - meterX, barH, h.SoundLevel);
+        BottomRow(g, text, row4, h);
     });
 
     /// <summary>Draws the pieces left to right on one baseline from x (or, with draw false, only measures them); returns the width.</summary>
@@ -138,16 +116,146 @@ public sealed partial class BaseStationScreen
         Pieces(g, x + arrowWidth, baseline, true, pieces);
     }
 
-    /// <summary>Segments that light up with the sound level (0–1), with a faint track where they're dark.</summary>
-    private static void SoundMeter(Graphics g, float x, float y, float width, float height, float level)
+    // ---------- the bottom row: volume, headset and mouse battery, weather ----------
+
+    // 9 px tall pictures drawn pixel by pixel ('#' lit), so they stay crisp; they stand on the text's baseline.
+    private static readonly string[] SpeakerPixels =
+    [
+        "....#...",
+        "...##...",
+        "..###.#.",
+        "#####..#",
+        "#####..#",
+        "#####..#",
+        "..###.#.",
+        "...##...",
+        "....#...",
+    ];
+    private static readonly string[] HeadsetPixels =
+    [
+        "..#####..",
+        ".#.....#.",
+        "#.......#",
+        "#.......#",
+        "##.....##",
+        "###...###",
+        "###...###",
+        "###...###",
+        ".##...##.",
+    ];
+    private static readonly string[] MousePixels =
+    [
+        ".#####.",
+        "#..#..#",
+        "#..#..#",
+        "#######",
+        "#.....#",
+        "#.....#",
+        "#.....#",
+        "#.....#",
+        ".#####.",
+    ];
+    private static readonly string[] BoltPixels =
+    [
+        "...##",
+        "..##.",
+        ".##..",
+        "#####",
+        "..##.",
+        ".##..",
+        ".#...",
+        "#....",
+    ];
+
+    /// <summary>One part of the bottom row: how wide it is, and how to draw it from a left edge.</summary>
+    private readonly record struct Part(float Width, Action<int> Draw);
+
+    /// <summary>
+    /// The bottom row, spread over the width with equal gaps: a speaker and the volume, a headset and its battery level
+    /// (or "off", then without the volume), a mouse and its battery level (left out while not known), each with a
+    /// lightning bolt while charging, and the weather when a place is set. No "%" signs, so it all fits.
+    /// </summary>
+    private static void BottomRow(Graphics g, Font text, float baseline, HomeData h)
     {
-        int segments = (int)(width / 5);
-        int lit = (int)Math.Round(Math.Clamp(level, 0, 1) * segments);
-        for (int s = 0; s < segments; s++)
+        List<Part> Parts(bool shortTemperature, bool bolts)
         {
-            float sx = x + s * 5;
-            if (s < lit) g.FillRectangle(Brushes.White, sx, y, 4, height);
-            else g.FillRectangle(Brushes.White, sx + 1, y + height / 2, 2, 1);
+            var parts = new List<Part>();
+            if (!h.HeadsetOn) parts.Add(IconText(g, text, baseline, HeadsetPixels, "off"));
+            else
+            {
+                parts.Add(IconText(g, text, baseline, SpeakerPixels, h.Volume?.ToString() ?? "–"));
+                parts.Add(Battery(h.HeadsetBattery, HeadsetPixels, bolts));
+            }
+            if (h.MouseBattery is not null) parts.Add(Battery(h.MouseBattery, MousePixels, bolts));
+            if (h.WeatherSet) parts.Add(WeatherPart(g, text, baseline, h.Weather, shortTemperature));
+            return parts;
         }
+        Part Battery(BatteryInfo? b, string[] icon, bool bolt) =>
+            IconText(g, text, baseline, icon, b?.Percent.ToString() ?? "–", bolt && b?.Charging == true);
+
+        // When it gets tight (three 100s and a two-digit temperature): "12°" instead of "12°C", then narrower gaps,
+        // then no charging bolt.
+        const float left = 1, right = W - 2;
+        List<Part> row = null!;
+        float gap = 0;
+        foreach (var (shortTemperature, bolts, minGap) in new[] { (false, true, 4f), (true, true, 4f), (true, true, 2f), (true, false, 2f) })
+        {
+            row = Parts(shortTemperature, bolts);
+            gap = Gap(row);
+            if (gap >= minGap) break;
+        }
+        gap = Math.Max(gap, 1);
+        float x = left;
+        foreach (var part in row)
+        {
+            part.Draw((int)Math.Round(x));
+            x += part.Width + gap;
+        }
+
+        static float Gap(List<Part> parts) =>
+            parts.Count < 2 ? 0 : (right - left - parts.Sum(p => p.Width)) / (parts.Count - 1);
+    }
+
+    /// <summary>A pixel picture, then the text 2 px after it, then a lightning bolt when charging.</summary>
+    private static Part IconText(Graphics g, Font text, float baseline, string[] icon, string value, bool charging = false)
+    {
+        var piece = new Piece(text, value);
+        int iconW = icon[0].Length;
+        float textW = Pieces(g, 0, 0, false, piece);
+        float width = iconW + 2 + textW + (charging ? 2 + BoltPixels[0].Length : 0);
+        return new Part(width, x =>
+        {
+            PixelIcon(g, icon, x, baseline);
+            Pieces(g, x + iconW + 2, baseline, true, piece);
+            if (charging) PixelIcon(g, BoltPixels, (int)Math.Round(x + iconW + 2 + textW + 2), baseline);
+        });
+    }
+
+    /// <summary>The weather picture and the temperature ("7°C", or "7°" when short), or "…" before the first answer.</summary>
+    private static Part WeatherPart(Graphics g, Font text, float baseline, WeatherNow? w, bool shortTemperature)
+    {
+        if (w is null)
+        {
+            var waiting = new Piece(text, "…");
+            return new Part(Pieces(g, 0, 0, false, waiting), x => Pieces(g, x, baseline, true, waiting));
+        }
+        // Whole degrees, never "-0"; a hyphen for minus (Segoe UI's minus sign leaves a gap before the digits).
+        int degrees = (int)Math.Round(w.Temperature, MidpointRounding.AwayFromZero);
+        var temperature = new Piece(text, degrees.ToString(System.Globalization.CultureInfo.InvariantCulture) + (shortTemperature ? "°" : "°C"));
+        float textW = Pieces(g, 0, 0, false, temperature);
+        return new Part(12 + 3 + textW, x =>
+        {
+            WeatherIcon(g, x, (int)Math.Round(baseline - 10), w.Code, w.IsDay);
+            Pieces(g, x + 12 + 3, baseline, true, temperature);
+        });
+    }
+
+    /// <summary>Draws a pixel picture with its left edge at x and its last row just above the baseline.</summary>
+    private static void PixelIcon(Graphics g, string[] rows, int x, float baseline)
+    {
+        int top = (int)Math.Round(baseline) - rows.Length;
+        for (int y = 0; y < rows.Length; y++)
+            for (int px = 0; px < rows[y].Length; px++)
+                if (rows[y][px] == '#') g.FillRectangle(Brushes.White, x + px, top + y, 1, 1);
     }
 }

@@ -155,7 +155,8 @@ public sealed class TrayContext : ApplicationContext
         var s = Settings.HeadsetScreen;
         var game = s.ShowPcStats ? _games.RunningGame() : null; // still counts while alt-tabbed out of it
         return new DashboardData(game?.Name, game?.Started, s.ShowNowPlaying, s.ShowPcStats,
-            s.ClockSeconds, s.NowPlayingSeconds, s.PcStatsSeconds, game?.Pid ?? 0, s.PingHost, s.WeatherLatitude, s.WeatherLongitude);
+            s.ClockSeconds, s.NowPlayingSeconds, s.PcStatsSeconds, game?.Pid ?? 0, s.PingHost, s.WeatherLatitude, s.WeatherLongitude,
+            _mouseBattery);
     }
 
     /// <summary>A pop-up on the base-station screen, if it's GearTray's and pop-ups are on.</summary>

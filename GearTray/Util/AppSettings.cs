@@ -45,8 +45,8 @@ public sealed class HeadsetScreenSettings
     /// <summary>A server (IP address or name) pinged every second; the home page shows "Server: On" or "Off". Empty = none.</summary>
     public string PingHost { get; set; } = "";
     /// <summary>
-    /// The place for the home page's weather (in the sound meter's place): as typed, as found by Open-Meteo's place
-    /// search ("Copenhagen, Capital Region, Denmark"), and its coordinates. No coordinates = no weather (the meter shows).
+    /// The place for the home page's weather (at the end of the bottom row): as typed, as found by Open-Meteo's place
+    /// search ("Copenhagen, Capital Region, Denmark"), and its coordinates. No coordinates = no weather.
     /// </summary>
     public string WeatherPlace { get; set; } = "";
     public string WeatherFound { get; set; } = "";

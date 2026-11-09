@@ -121,7 +121,7 @@ internal sealed class HeadsetTab : SettingsTab
         screen.Row("Server to ping", Section.Line(_pingHost, Section.Caption("IP address or name; leave empty for none")));
         screen.Row("Weather for", Section.Line(_weatherPlace, _weatherFound));
         screen.Note("Replaces the base station's normal screen while GearTray runs. The home page (clock, date, download and upload " +
-                    "speed, headset volume, and the weather or a live sound meter) is always there; now playing and PC stats join it " +
+                    "speed, volume, headset and mouse battery, and the weather) is always there; now playing and PC stats join it " +
                     "only while they apply, and the pages take turns, each staying up for the seconds set above (a new song shows " +
                     "right away). The server is pinged every second and shows next to the date as \"Server: On\", or \"Off\" after " +
                     "two missed answers in a row. The weather comes from Open-Meteo (open-meteo.com, free, no account) every 15 " +
@@ -140,7 +140,7 @@ internal sealed class HeadsetTab : SettingsTab
         _secStats.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.PcStatsSeconds = (int)_secStats.Value; Tray.SaveSettings(); };
         _pingHost.Text = screenSettings.PingHost;
         _pingHost.TextChanged += (_, _) => { Tray.Settings.HeadsetScreen.PingHost = _pingHost.Text.Trim(); Tray.SaveSettings(); };
-        const string weatherHint = "a town or city; leave empty for the sound meter";
+        const string weatherHint = "a town or city; leave empty for none";
         _weatherPlace.Text = screenSettings.WeatherPlace;
         _weatherFound.Text = screenSettings.WeatherLatitude is not null ? screenSettings.WeatherFound
             : screenSettings.WeatherPlace.Length > 0 ? "not found" : weatherHint;

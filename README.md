@@ -69,11 +69,11 @@ GearTray does those parts itself:
   warning color once the battery drops below the limit.
 - **Base-station screen**: GearTray's own home page on the Arctis base
   station's screen: the clock with seconds, the date, download and upload
-  speed, the headset's volume (or "Headset off") beside the weather outside,
-  a picture and the temperature, when you've typed a town or city under
-  "Weather for" on the Headset tab (from Open-Meteo, open-meteo.com: free, no
-  account, every 15 minutes), or beside a live sound meter when you haven't,
-  and, if you set one, whether a server answers ping ("Server: On" or "Off",
+  speed, one tight bottom line with the volume, the headset's and the mouse's
+  battery (with a bolt while charging) and the weather outside, a picture and
+  the temperature, when you've typed a town or city under "Weather for" on the
+  Headset tab (from Open-Meteo, open-meteo.com: free, no account, every 15
+  minutes), and, if you set one, whether a server answers ping ("Server: On" or "Off",
   checked every second). Pages take turns with it only while they
   apply: now playing (from Windows' media controls: the title, the artist and
   the player, the sound of the last 13 seconds as a moving wave, and the time

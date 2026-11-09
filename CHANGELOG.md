@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.0 (2026-11-09)
+
+- **Batteries on the base-station home page.** The bottom row is now one tight
+  line spread over the width: a speaker and the volume (no more long bar), a
+  headset and its battery, a mouse and its battery, and the weather. Small
+  pixel pictures mark each, the numbers have no "%", and a lightning bolt
+  follows a battery while it charges. With the headset off, "off" takes the
+  place of the volume and its battery; the mouse is left out until its battery
+  is known (it keeps the last level while the mouse sleeps). When the row gets
+  very tight (three 100s and a two-digit temperature) the temperature drops its
+  "C", the gaps narrow and, last of all, the bolt goes.
+- The headset's battery comes with the volume reading the screen already makes
+  every 3 seconds; the mouse's comes from the tray's own once-a-minute reading.
+- The home page's live sound meter (shown only without a weather place) is
+  gone; the sound is still read for the now-playing wave.
+
 ## 0.9.0 (2026-11-08)
 
 - **New now-playing page** on the base-station screen: the title; the artist

@@ -119,14 +119,16 @@ public sealed class ArctisNovaProWireless : GearDevice, IHasBattery
         catch (TimeoutException) { return null; }
     }
 
-    /// <summary>For the base-station screen: is the headset on, and the dial's volume (two queries).</summary>
-    public (bool Online, int? Volume) ReadLive()
+    /// <summary>For the base-station screen: is the headset on, the dial's volume and the headset's battery (two queries).</summary>
+    public (bool Online, int? Volume, BatteryInfo? Battery) ReadLive()
     {
         var s = Query(0xB0);
-        bool online = s is not null && ParseStatus(s).HeadsetOnline;
+        var status = s is null ? null : ParseStatus(s);
+        bool online = status is { HeadsetOnline: true };
+        var battery = online && status!.BatteryPercent is int p ? new BatteryInfo(p, status.Charging) : null;
         var a = Query(0x20);
         int? volume = a is null ? null : (int)Math.Round((56 - Math.Min(a[3], (byte)56)) * 100 / 56.0);
-        return (online, volume);
+        return (online, volume, battery);
     }
 
     /// <summary>Status only (one query): battery, spare battery, noise mode, connection.</summary>
