@@ -175,12 +175,16 @@ public sealed class KeyboardFeatureSettings
     public int LightsOffIdleMinutes { get; set; }
 }
 
-/// <summary>Mouse wheel dark normally, lit only when the battery runs low.</summary>
+/// <summary>Mouse wheel dark normally, lit only when the battery runs low (and, optionally, once it has charged).</summary>
 public sealed class MouseBatteryLightSettings
 {
     public bool Enabled { get; set; }
     public int Threshold { get; set; } = 20;
     public string Color { get; set; } = "#FF0000";
+    /// <summary>Steady color while on the cable once the battery reaches ChargedThreshold.</summary>
+    public bool ChargedEnabled { get; set; }
+    public int ChargedThreshold { get; set; } = 100;
+    public string ChargedColor { get; set; } = "#00FF00";
 }
 
 public sealed class MouseLightingSettings

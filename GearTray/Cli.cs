@@ -241,7 +241,7 @@ internal static class Cli
         m.Get<RazerHuntsmanElite>() is { Connected: true } k ? k : throw new InvalidOperationException("Keyboard not available: " + m.Get<RazerHuntsmanElite>()?.Problem);
 
     private static RogOmniMouse Mouse(DeviceManager m) =>
-        m.Get<RogOmniMouse>() is { Connected: true } mm ? mm : throw new InvalidOperationException("Mouse receiver not connected");
+        m.Get<RogOmniMouse>() is { Connected: true } mm ? mm : throw new InvalidOperationException("Mouse not connected");
 
     private static int Probe(DeviceManager mgr)
     {

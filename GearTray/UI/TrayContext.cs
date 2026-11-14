@@ -42,7 +42,9 @@ public sealed class TrayContext : ApplicationContext
 
     // last known state
     private BatteryInfo? _mouseBattery;
-    private bool _mouseAsleep, _mouseWarnShown;
+    private bool _mouseAsleep;
+    private MouseBatteryLook _mouseLook;
+    private enum MouseBatteryLook { Dark, Low, Charged }
     private HeadsetState? _headset;
     private PadBattery? _controllerBattery;
     private bool _controllerConnected;
@@ -441,23 +443,38 @@ public sealed class TrayContext : ApplicationContext
         finally { _refreshing = false; }
     }
 
-    /// <summary>"Only when the battery is low" mouse lighting: dark normally, breathing warning color when low.</summary>
+    /// <summary>
+    /// "Only when the battery is low" mouse lighting: dark normally, breathing warning color when low, and (if chosen)
+    /// a steady color once it has charged to the chosen level while still on the cable.
+    /// </summary>
     private async void UpdateMouseBatteryLight()
     {
         var cfg = Settings.MouseBatteryLight;
         if (!cfg.Enabled || _mouseAsleep) return;
         if (Devices.Get<RogOmniMouse>() is not { Connected: true, HasLighting: true } m) return;
-        bool warn = _mouseBattery is { Charging: false } b && b.Percent < cfg.Threshold;
-        if (!warn && !_mouseWarnShown) return;
-        var look = warn
-            ? new MouseLighting(MouseLightMode.Breathing, ColorUtil.Parse(cfg.Color), 100)
-            : new MouseLighting(MouseLightMode.Off, Color.Black, 0);
+        var b = _mouseBattery;
+        var want = b is { Charging: false } && !m.Wired && b.Percent < cfg.Threshold ? MouseBatteryLook.Low
+            : cfg.ChargedEnabled && b is not null && (b.Charging || m.Wired) && b.Percent >= cfg.ChargedThreshold ? MouseBatteryLook.Charged
+            : MouseBatteryLook.Dark;
+        if (want == MouseBatteryLook.Dark && _mouseLook == MouseBatteryLook.Dark) return;
+        var look = want switch
+        {
+            MouseBatteryLook.Low => new MouseLighting(MouseLightMode.Breathing, ColorUtil.Parse(cfg.Color), 100),
+            MouseBatteryLook.Charged => new MouseLighting(MouseLightMode.Static, ColorUtil.Parse(cfg.ChargedColor), 100),
+            _ => new MouseLighting(MouseLightMode.Off, Color.Black, 0),
+        };
         try
         {
-            // Re-sent every minute while low (live only, nothing stored), so it survives the mouse waking up.
+            // Re-sent every minute while lit (live only, nothing stored), so it survives the mouse waking up.
             await Devices.RunAsync(() => m.ApplyLighting(look, persist: false));
-            if (warn != _mouseWarnShown) Log.Info(warn ? "Mouse battery low: wheel light on" : "Mouse battery fine: wheel light off");
-            _mouseWarnShown = warn;
+            if (want != _mouseLook)
+                Log.Info(want switch
+                {
+                    MouseBatteryLook.Low => "Mouse battery low: wheel light on",
+                    MouseBatteryLook.Charged => $"Mouse charged to {b!.Percent}%: wheel light on",
+                    _ => "Mouse battery fine: wheel light off",
+                });
+            _mouseLook = want;
         }
         catch (Exception ex) { Log.Warn("Mouse battery light: " + ex.Message); }
     }

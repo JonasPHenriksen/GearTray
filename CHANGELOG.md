@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0 (2026-11-14)
+
+- **The mouse by cable.** Plugged in to charge, the ROG Harpe Ace Aim Lab
+  Edition (0B05:1A92) is now found directly, so its battery, the charging bolt
+  on the base station and every mouse setting keep working without the Omni
+  receiver. Plugging the cable in or pulling it switches between cable and
+  receiver by itself. By cable the mouse's control interface has no report IDs,
+  so commands go out with report ID 0 instead of 3; otherwise it is the same
+  protocol.
+- **Wheel light when charged.** Under "Only light up when the battery is low"
+  there is now "Also light up when it has charged to N% in a color" (50–100%,
+  default 100% green). Once the battery reaches that level while the cable is
+  in, the wheel shines steadily in that color; it goes dark when you unplug.
+  The low-battery warning no longer shows while the cable is in.
+
 ## 0.10.0 (2026-11-09)
 
 - **Batteries on the base-station home page.** The bottom row is now one tight

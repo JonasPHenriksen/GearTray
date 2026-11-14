@@ -78,7 +78,7 @@ public sealed class DeviceManager : IDisposable
         {
             var mine = all.Where(i => dev.Matches(i.VendorId, i.ProductId)).ToList();
             bool wasConnected = dev.Connected;
-            string? oldProblem = dev.Problem;
+            string? oldProblem = dev.Problem, oldDetail = dev.Detail;
             try
             {
                 if (mine.Count == 0)
@@ -90,13 +90,18 @@ public sealed class DeviceManager : IDisposable
                     dev.Attach(mine, hotPlug);
                     if (dev.Connected && hotPlug) DeviceArrived?.Invoke(dev);
                 }
+                else if (dev.NeedsReattach(mine))
+                {
+                    dev.Detach();
+                    dev.Attach(mine, hotPlug);
+                }
             }
             catch (Exception ex)
             {
                 Log.Error($"{dev.Name}: attach failed", ex);
                 try { dev.Detach(); } catch { }
             }
-            if (dev.Connected != wasConnected || dev.Problem != oldProblem)
+            if (dev.Connected != wasConnected || dev.Problem != oldProblem || (dev.Connected && dev.Detail != oldDetail))
             {
                 changed = true;
                 Log.Info($"{dev.Name}: {(dev.Connected ? "connected" : "not connected")}{(dev.Detail is null ? "" : " — " + dev.Detail)}{(dev.Problem is null ? "" : " — " + dev.Problem)}");

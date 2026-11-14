@@ -9,7 +9,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>GearTray</AssemblyName>
     <RootNamespace>GearTray</RootNamespace>
-    <Version>0.10.0</Version>
+    <Version>0.11.0</Version>
     <!-- Written from UI/Logo.cs by GearTray's write-icon command (see the README's command line) -->
     <ApplicationIcon>GearTray.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>

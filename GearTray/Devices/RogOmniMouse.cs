@@ -88,9 +88,10 @@ public sealed class MouseSettings
 public sealed class MouseAsleepException() : Exception("The mouse is asleep or out of range. Move it and try again.");
 
 /// <summary>
-/// ASUS ROG wireless mouse behind a ROG Omni receiver (0B05:1ACE). Protocol per G-Helper and libratbag:
-/// 64-byte output reports with report ID 0x03 on interface 2 / collection 3 (usage page 0xFF01); replies echo the command.
-/// The paired mouse model is read from collection 1 (usage page 0xFF02, report ID 0x01, command A0).
+/// ASUS ROG wireless mouse behind a ROG Omni receiver (0B05:1ACE), or plugged in by its cable (e.g. while charging).
+/// Protocol per G-Helper and libratbag: 64-byte output reports with report ID 0x03 on usage page 0xFF01 (receiver:
+/// interface 2 / collection 3; cable: interface 0); replies echo the command. Through the receiver the paired mouse
+/// model is read from collection 1 (usage page 0xFF02, report ID 0x01, command A0); by cable the product ID names it.
 /// Only commands those projects use are sent.
 /// </summary>
 public sealed class RogOmniMouse : GearDevice, IHasBattery
@@ -115,30 +116,62 @@ public sealed class RogOmniMouse : GearDevice, IHasBattery
         [0x1A6A] = new("ROG Keris Wireless Aimpoint", 100, 36000, [MouseLedZone.Logo]),
     };
 
+    private const ushort ReceiverPid = 0x1ACE;
+
+    /// <summary>The mouse's own product ID when it is plugged in by cable → the ID the receiver lists it under.</summary>
+    private static readonly Dictionary<ushort, int> WiredPids = new()
+    {
+        [0x1A92] = 0x1A94, // ROG Harpe Ace Aim Lab Edition (seen on this PC, 2026-11-14)
+    };
+
     private HidConnection? _ctl;
+    /// <summary>0x03 through the receiver; by cable the control interface has no report IDs, so 0x00.</summary>
+    private byte _reportId = 0x03;
 
     public RogMouseModel? Model { get; private set; }
+    /// <summary>Connected by its cable rather than through the receiver.</summary>
+    public bool Wired { get; private set; }
     public IReadOnlyList<int> PairedPids { get; private set; } = [];
     /// <summary>Polling Rate Booster detected: rates above 1000 Hz are reported differently, so polling is read-only.</summary>
     public bool Booster { get; private set; }
 
     public override string Name => Model?.Name ?? "ROG mouse";
     public override DeviceKind Kind => DeviceKind.Mouse;
-    public override bool Matches(ushort vid, ushort pid) => vid == 0x0B05 && pid == 0x1ACE;
+    public override bool Matches(ushort vid, ushort pid) => vid == 0x0B05 && (pid == ReceiverPid || WiredPids.ContainsKey(pid));
 
     public bool CanWriteSettings => Model is { Experimental: false };
     public bool HasLighting => Model is { Zones.Length: > 0 };
 
+    /// <summary>The cable was plugged in or pulled while connected: switch between cable and receiver.</summary>
+    public override bool NeedsReattach(IReadOnlyList<HidDeviceInfo> interfaces) =>
+        interfaces.Any(i => WiredPids.ContainsKey(i.ProductId)) != Wired;
+
     public override void Attach(IReadOnlyList<HidDeviceInfo> interfaces, bool hotPlug)
     {
-        var col3 = interfaces.FirstOrDefault(i => i.Interface == 2 && i.UsagePage == 0xFF01 && i.OutputLength >= 64);
-        var col1 = interfaces.FirstOrDefault(i => i.Interface == 2 && i.UsagePage == 0xFF02 && i.OutputLength >= 64);
-        if (col3 is null) { Problem = "mouse control interface not found"; return; }
-        _ctl = HidConnection.OpenReadWrite(col3);
+        // The cable wins: while it is plugged in the mouse talks over it, not over the receiver.
+        var cabled = interfaces.Where(i => WiredPids.ContainsKey(i.ProductId)).ToList();
+        Wired = cabled.Count > 0;
+        _reportId = Wired ? (byte)0x00 : (byte)0x03;
+        int pid;
+        if (Wired)
+        {
+            var ctl = cabled.FirstOrDefault(i => i.Interface == 0 && i.UsagePage == 0xFF01 && i.OutputLength >= 64);
+            if (ctl is null) { Problem = "mouse control interface not found (cable)"; return; }
+            _ctl = HidConnection.OpenReadWrite(ctl);
+            pid = WiredPids[ctl.ProductId];
+            PairedPids = [];
+        }
+        else
+        {
+            var col3 = interfaces.FirstOrDefault(i => i.Interface == 2 && i.UsagePage == 0xFF01 && i.OutputLength >= 64);
+            var col1 = interfaces.FirstOrDefault(i => i.Interface == 2 && i.UsagePage == 0xFF02 && i.OutputLength >= 64);
+            if (col3 is null) { Problem = "mouse control interface not found"; return; }
+            _ctl = HidConnection.OpenReadWrite(col3);
 
-        PairedPids = col1 is null ? [] : QueryPairedPids(col1);
-        int pid = PairedPids.FirstOrDefault(Models.ContainsKey);
-        if (pid == 0) pid = PairedPids.FirstOrDefault();
+            PairedPids = col1 is null ? [] : QueryPairedPids(col1);
+            pid = PairedPids.FirstOrDefault(Models.ContainsKey);
+            if (pid == 0) pid = PairedPids.FirstOrDefault();
+        }
         Model = Models.GetValueOrDefault(pid);
         try
         {
@@ -147,8 +180,9 @@ public sealed class RogOmniMouse : GearDevice, IHasBattery
         }
         catch (Exception ex) { Log.Warn($"Mouse booster query: {ex.Message}"); }
 
-        Detail = Model is not null ? $"{Model.Name} (via Omni receiver)"
-            : pid != 0 ? $"unknown ROG mouse, ID {pid:X4} (via Omni receiver)"
+        string via = Wired ? "by cable" : "via Omni receiver";
+        Detail = Model is not null ? $"{Model.Name} ({via})"
+            : pid != 0 ? $"unknown ROG mouse, ID {pid:X4} ({via})"
             : "Omni receiver, no mouse paired";
         Problem = null;
         Connected = true;
@@ -158,6 +192,7 @@ public sealed class RogOmniMouse : GearDevice, IHasBattery
     {
         _ctl?.Dispose();
         _ctl = null;
+        Wired = false;
         base.Detach();
     }
 
@@ -440,15 +475,15 @@ public sealed class RogOmniMouse : GearDevice, IHasBattery
     /// </summary>
     private byte[]? Send(byte[] cmd, bool requireReply = false)
     {
-        var ctl = _ctl ?? throw new InvalidOperationException("Mouse receiver not connected");
+        var ctl = _ctl ?? throw new InvalidOperationException("Mouse not connected");
         var pkt = new byte[1 + cmd.Length];
-        pkt[0] = 0x03;
+        pkt[0] = _reportId;
         cmd.CopyTo(pkt, 1);
         int match = Math.Min(pkt.Length, cmd[0] == 0x12 && cmd.Length >= 3 ? 4 : 3);
 
         for (int attempt = 0; attempt < 3; attempt++)
         {
-            var r = ctl.Transact(pkt, x => x.Length > 3 && x[0] == 0x03 &&
+            var r = ctl.Transact(pkt, x => x.Length > 3 && x[0] == pkt[0] &&
                 ((x[1] == 0xFF && x[2] == 0xAA) || x.AsSpan(0, match).SequenceEqual(pkt.AsSpan(0, match))), 300);
             if (r is null) { if (!requireReply) return null; continue; }
             if (r[1] == 0xFF && r[2] == 0xAA) throw new MouseAsleepException();

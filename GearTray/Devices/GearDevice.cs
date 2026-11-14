@@ -30,6 +30,12 @@ public abstract class GearDevice : IDisposable
     /// </summary>
     public abstract void Attach(IReadOnlyList<HidDeviceInfo> interfaces, bool hotPlug);
 
+    /// <summary>
+    /// While connected: true when the matching interfaces changed in a way that needs a fresh Attach
+    /// (e.g. a wireless mouse got plugged in by cable).
+    /// </summary>
+    public virtual bool NeedsReattach(IReadOnlyList<HidDeviceInfo> interfaces) => false;
+
     /// <summary>Close handles; called when the device disappears or the app exits.</summary>
     public virtual void Detach() { Connected = false; }
 

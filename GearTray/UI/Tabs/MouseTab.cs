@@ -30,6 +30,10 @@ internal sealed class MouseTab : SettingsTab
     private readonly CheckBox _lowOnly = new() { Text = "Only light up when the battery is low", AutoSize = true };
     private readonly NumericUpDown _lowThreshold = new() { Minimum = 5, Maximum = 50, Width = 60 };
     private readonly Button _lowColor = Ui.ColorButton();
+    // Indented under the low-battery checkbox: it only makes sense while the wheel is dark otherwise.
+    private readonly CheckBox _chargedToo = new() { Text = "Also light up when it has charged to", AutoSize = true, Margin = new Padding(23, 4, 3, 3) };
+    private readonly NumericUpDown _chargedThreshold = new() { Minimum = 50, Maximum = 100, Increment = 5, Width = 60 };
+    private readonly Button _chargedColor = Ui.ColorButton();
     private readonly Button _apply, _reload;
     private MouseSettings? _have;
     private MouseLighting? _lightHave;
@@ -82,12 +86,16 @@ internal sealed class MouseTab : SettingsTab
 
         var light = AddSection("lighting", "Lighting");
         light.Span(Section.Line(_lowOnly, Section.Caption("below"), _lowThreshold, Section.Caption("% in"), _lowColor));
+        light.Span(Section.Line(_chargedToo, _chargedThreshold, Section.Caption("% in"), _chargedColor));
         light.Row("Effect", _light);
         light.Row("Color", _lightColor);
         light.Row("Brightness", _lightBrightness);
-        light.Note("“Only when the battery is low” keeps the wheel dark and makes it breathe in the chosen color once the battery drops below the limit (GearTray has to be running).");
+        light.Note("“Only when the battery is low” keeps the wheel dark and makes it breathe in the chosen color once the battery drops below the limit. " +
+                   "“Charged to” lights it steadily in its color once the battery reaches that level while the cable is plugged in; " +
+                   "it goes dark again when you unplug (GearTray has to be running).");
         _light.SelectedIndexChanged += (_, _) => UpdateLightControls();
         _lowOnly.CheckedChanged += (_, _) => UpdateLightControls();
+        _chargedToo.CheckedChanged += (_, _) => UpdateLightControls();
 
         _apply = AddButton("Apply to mouse", Apply);
         _reload = AddButton("Reload", LoadAsync);
@@ -100,7 +108,8 @@ internal sealed class MouseTab : SettingsTab
         bool usable = _lowOnly.Enabled;
         bool lowOnly = _lowOnly.Checked;
         var mode = Ui.Value<MouseLightMode>(_light);
-        _lowThreshold.Enabled = _lowColor.Enabled = usable && lowOnly;
+        _lowThreshold.Enabled = _lowColor.Enabled = _chargedToo.Enabled = usable && lowOnly;
+        _chargedThreshold.Enabled = _chargedColor.Enabled = usable && lowOnly && _chargedToo.Checked;
         _light.Enabled = usable && !lowOnly;
         _lightColor.Enabled = usable && !lowOnly && MouseLighting.UsesColor.Contains(mode);
         _lightBrightness.Enabled = usable && !lowOnly && mode != MouseLightMode.Off;
@@ -109,7 +118,7 @@ internal sealed class MouseTab : SettingsTab
     public override async Task LoadAsync()
     {
         _have = null;
-        if (Mouse is not { } m) { Unavailable("Mouse receiver not connected."); return; }
+        if (Mouse is not { } m) { Unavailable("Mouse not connected (neither through the receiver nor by cable)."); return; }
         try
         {
             var (s, light, batt, buttons, serial) = await Tray.Devices.RunAsync(() =>
@@ -124,7 +133,7 @@ internal sealed class MouseTab : SettingsTab
             _lightHave = light;
             _buttonsHave = buttons;
             _profileHave = s.ProfileRaw + 1;
-            Info.Text = m.Name + (batt is null ? "" : $" · battery {batt.Percent}%{(batt.Charging ? " (charging)" : "")}")
+            Info.Text = m.Name + (m.Wired ? " · by cable" : "") + (batt is null ? "" : $" · battery {batt.Percent}%{(batt.Charging ? " (charging)" : "")}")
                 + (string.IsNullOrEmpty(serial) ? "" : $" · serial {serial}")
                 + (m.CanWriteSettings ? "" : "\nThis mouse model's settings are shown read-only.");
             Ui.Select(_profile, _profileHave, $"Profile {_profileHave}");
@@ -157,6 +166,9 @@ internal sealed class MouseTab : SettingsTab
             _lowOnly.Checked = low.Enabled;
             _lowThreshold.Value = Math.Clamp(low.Threshold, 5, 50);
             _lowColor.BackColor = ColorUtil.Parse(low.Color);
+            _chargedToo.Checked = low.ChargedEnabled;
+            _chargedThreshold.Value = Math.Clamp(low.ChargedThreshold, 50, 100);
+            _chargedColor.BackColor = ColorUtil.Parse(low.ChargedColor);
             if (light is not null)
             {
                 Ui.Select(_light, light.Mode, light.Mode.ToString());
@@ -254,6 +266,8 @@ internal sealed class MouseTab : SettingsTab
             s.MouseBatteryLight = new MouseBatteryLightSettings
             {
                 Enabled = lowOnly, Threshold = (int)_lowThreshold.Value, Color = ColorUtil.ToHex(_lowColor.BackColor),
+                ChargedEnabled = _chargedToo.Checked, ChargedThreshold = (int)_chargedThreshold.Value,
+                ChargedColor = ColorUtil.ToHex(_chargedColor.BackColor),
             };
             if (lightChanged && !lowOnly && light!.Mode != MouseLightMode.Off) s.LightsOff = false;
             Tray.SaveSettings();
