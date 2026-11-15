@@ -275,6 +275,9 @@ public sealed class ArctisNovaProWireless : GearDevice, IHasBattery
     /// <summary>Give the screen back to the base station's own display.</summary>
     public void RestoreScreen() => Write([0x95]);
 
+    /// <summary>Screen brightness 1–10, sent without the save command (for a short test; put the old level back after).</summary>
+    public void SetScreenBrightness(int level) => Write([0x85, (byte)Math.Clamp(level, 1, 10)]);
+
     /// <summary>Read pending events (dial, ChatMix knob) so we know when the base station is using its screen.</summary>
     public void DrainEvents()
     {

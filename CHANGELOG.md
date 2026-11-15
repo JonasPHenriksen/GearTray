@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0 (2026-11-15)
+
+- **Dark base-station screen while the PC sleeps.** On this PC the displays
+  turning off is followed straight away by sleep, and until now GearTray handed
+  the screen back then, so the base station's own detailed screen stayed up for
+  hours and kept burning in. Now GearTray leaves an all-black picture instead
+  (Headset tab → Base station screen, on by default). Exiting GearTray or
+  unticking its screen still hands the screen back. Whether the base station
+  keeps the black picture all through sleep is still to be seen.
+- **Burn-in test.** A button on the same section lights every pixel at full
+  brightness for a minute (worn areas show up darker), then puts the old
+  brightness and screen back; clicking it again ends it early.
+- `--probe` also prints the base station's dim timer and home-screen choice;
+  `--screenshot` also saves each settings section on its own, so long tabs
+  can be seen whole.
+
 ## 0.11.0 (2026-11-14)
 
 - **The mouse by cable.** Plugged in to charge, the ROG Harpe Ace Aim Lab

@@ -35,6 +35,8 @@ internal sealed class HeadsetTab : SettingsTab
     private readonly CheckBox _screenMedia = new() { Text = "Now playing, while music or video plays", AutoSize = true };
     private readonly CheckBox _screenStats = new() { Text = "PC stats, while a game runs", AutoSize = true };
     private readonly CheckBox _screenPopups = new() { Text = "Pop-ups for game mode, program profiles and the controller", AutoSize = true };
+    private readonly CheckBox _darkAsleep = new() { Text = "Leave the screen dark while the PC sleeps (not the base station's own screen)", AutoSize = true };
+    private Button? _burnTest;
     private readonly NumericUpDown _secHome = PageSeconds(), _secMedia = PageSeconds(), _secStats = PageSeconds();
     private readonly TextBox _pingHost = new() { Width = 130, PlaceholderText = "e.g. 192.168.50.10" };
     private readonly TextBox _weatherPlace = new() { Width = 130, PlaceholderText = "e.g. Copenhagen" };
@@ -111,7 +113,7 @@ internal sealed class HeadsetTab : SettingsTab
 
         var screen = AddSection("screen", "Base station screen");
         screen.Span(_dashboard);
-        foreach (var page in new[] { _screenMedia, _screenStats, _screenPopups })
+        foreach (var page in new[] { _screenMedia, _screenStats, _screenPopups, _darkAsleep })
         {
             page.Margin = new Padding(24, 2, 3, 2);
             screen.Span(page);
@@ -120,18 +122,22 @@ internal sealed class HeadsetTab : SettingsTab
             Section.Caption("Home"), _secHome, Section.Caption("Now playing"), _secMedia, Section.Caption("PC stats"), _secStats));
         screen.Row("Server to ping", Section.Line(_pingHost, Section.Caption("IP address or name; leave empty for none")));
         screen.Row("Weather for", Section.Line(_weatherPlace, _weatherFound));
+        _burnTest = Ui.Button("Burn-in test", async (_, _) => await BurnInTest());
+        screen.Row("Check for burn-in", Section.Line(_burnTest, Section.Caption("every pixel lit at full brightness for a minute")));
         screen.Note("Replaces the base station's normal screen while GearTray runs. The home page (clock, date, download and upload " +
                     "speed, volume, headset and mouse battery, and the weather) is always there; now playing and PC stats join it " +
                     "only while they apply, and the pages take turns, each staying up for the seconds set above (a new song shows " +
                     "right away). The server is pinged every second and shows next to the date as \"Server: On\", or \"Off\" after " +
                     "two missed answers in a row. The weather comes from Open-Meteo (open-meteo.com, free, no account) every 15 " +
                     "minutes. The screen steps aside for a few seconds whenever you turn a knob, shifts by a pixel every minute " +
-                    "against burn-in, and gives the screen back when you untick it, exit GearTray or the PC sleeps.");
+                    "against burn-in, and gives the screen back when you untick it or exit GearTray, and when the PC sleeps unless " +
+                    "it's left dark. The burn-in test shows worn areas as darker shapes; click it again to end it early.");
         var screenSettings = Tray.Settings.HeadsetScreen;
         _dashboard.Checked = screenSettings.Dashboard;
         _screenMedia.Checked = screenSettings.ShowNowPlaying;
         _screenStats.Checked = screenSettings.ShowPcStats;
         _screenPopups.Checked = screenSettings.ShowPopups;
+        _darkAsleep.Checked = screenSettings.DarkWhileAsleep;
         _secHome.Value = Math.Clamp(screenSettings.ClockSeconds, 2, 300);
         _secMedia.Value = Math.Clamp(screenSettings.NowPlayingSeconds, 2, 300);
         _secStats.Value = Math.Clamp(screenSettings.PcStatsSeconds, 2, 300);
@@ -170,7 +176,7 @@ internal sealed class HeadsetTab : SettingsTab
             _weatherFound.Text = typed.Length == 0 ? weatherHint : found?.Label ?? (failed is null ? "not found" : "couldn't look it up: " + failed);
         };
         void UpdatePageBoxes() =>
-            _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled = _secHome.Enabled = _secMedia.Enabled =
+            _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled = _darkAsleep.Enabled = _secHome.Enabled = _secMedia.Enabled =
             _secStats.Enabled = _pingHost.Enabled = _weatherPlace.Enabled = _dashboard.Checked;
         UpdatePageBoxes();
         _dashboard.CheckedChanged += (_, _) =>
@@ -183,6 +189,7 @@ internal sealed class HeadsetTab : SettingsTab
         _screenMedia.CheckedChanged += (_, _) => { Tray.Settings.HeadsetScreen.ShowNowPlaying = _screenMedia.Checked; Tray.SaveSettings(); };
         _screenStats.CheckedChanged += (_, _) => { Tray.Settings.HeadsetScreen.ShowPcStats = _screenStats.Checked; Tray.SaveSettings(); };
         _screenPopups.CheckedChanged += (_, _) => { Tray.Settings.HeadsetScreen.ShowPopups = _screenPopups.Checked; Tray.SaveSettings(); };
+        _darkAsleep.CheckedChanged += (_, _) => { Tray.Settings.HeadsetScreen.DarkWhileAsleep = _darkAsleep.Checked; Tray.SaveSettings(); };
 
         var info = AddSection("firmware", "Firmware");
         info.Span(_firmware);
@@ -191,7 +198,21 @@ internal sealed class HeadsetTab : SettingsTab
         _reload = AddButton("Reload", LoadAsync);
     }
 
-    private ArctisNovaProWireless? Headset => Tray.Devices.Get<ArctisNovaProWireless>() is { Connected: true } h ? h : null;
+    private async Task BurnInTest()
+    {
+        if (Tray.ScreenTestRunning) { await Tray.ScreenBurnInTestAsync(); return; } // ends the running test
+        _burnTest!.Text = "End the test";
+        Status("Burn-in test: every pixel lit for a minute. Darker shapes are burn-in.");
+        try
+        {
+            await Tray.ScreenBurnInTestAsync();
+            Status("Burn-in test done; brightness and screen are back.");
+        }
+        catch (Exception ex) { Status("Burn-in test didn't work: " + ex.Message); }
+        finally { if (!_burnTest.IsDisposed) _burnTest.Text = "Burn-in test"; }
+    }
+
+    private ArctisNovaProWireless? Headset =>Tray.Devices.Get<ArctisNovaProWireless>() is { Connected: true } h ? h : null;
 
     private void UpdateControls()
     {

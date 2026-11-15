@@ -176,6 +176,13 @@ public sealed class SettingsForm : Form
             using var bmp = new Bitmap(body.Width, Math.Min(h, body.Height));
             body.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
             bmp.Save(Path.Combine(dir, $"tab-{tab.Key}.png"), System.Drawing.Imaging.ImageFormat.Png);
+            // Each section on its own too: a long tab can be taller than the window may get.
+            foreach (var section in tab.Sections.Where(s => s.Visible && s.Width > 0 && s.Height > 0))
+            {
+                using var part = new Bitmap(section.Width, section.Height);
+                section.DrawToBitmap(part, new Rectangle(0, 0, part.Width, part.Height));
+                part.Save(Path.Combine(dir, $"section-{section.Id}.png"), System.Drawing.Imaging.ImageFormat.Png);
+            }
         }
     }
 }

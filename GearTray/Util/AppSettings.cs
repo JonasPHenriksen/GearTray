@@ -59,6 +59,8 @@ public sealed class HeadsetScreenSettings
     public int ClockSeconds { get; set; } = 8;
     public int NowPlayingSeconds { get; set; } = 6;
     public int PcStatsSeconds { get; set; } = 8;
+    /// <summary>When the PC goes to sleep, leave the screen black instead of handing it back to the base station.</summary>
+    public bool DarkWhileAsleep { get; set; } = true;
     /// <summary>The dashboard was showing when GearTray last ran (so the screen gets handed back at startup if needed).</summary>
     public bool WasShowing { get; set; }
 }

@@ -96,15 +96,59 @@ public sealed partial class BaseStationScreen : IDisposable
     /// <summary>Stop drawing and give the screen back to the base station.</summary>
     public void Stop()
     {
-        if (!_running) return;
+        if (!Halt()) return;
+        Restore();
+        Log.Info("Base station screen: back to the normal screen");
+    }
+
+    /// <summary>
+    /// Stop drawing but leave the screen black instead of handing it back (the PC is going to sleep: the base station's
+    /// own screen would otherwise stay up for hours and burn in). Turning a knob still shows its volume screen.
+    /// </summary>
+    public void StopDark()
+    {
+        if (!Halt()) return;
+        _ = _devices.RunAsync(() =>
+        {
+            try
+            {
+                if (_devices.Get<ArctisNovaProWireless>() is { Connected: true, CanDrawScreen: true } h) h.DrawScreen(new bool[W * H]);
+            }
+            catch (Exception ex) { Log.Warn("Base station screen (dark): " + ex.Message); }
+        });
+        Log.Info("Base station screen: left dark while the PC sleeps");
+    }
+
+    private bool Halt()
+    {
+        if (!_running) return false;
         _running = false;
         _timer?.Dispose();
         _timer = null;
         FpsCounter.Stop();
         _meter?.Dispose();
         _meter = null;
-        Restore();
-        Log.Info("Base station screen: back to the normal screen");
+        Interlocked.Exchange(ref _testUntilTicks, 0);
+        return true;
+    }
+
+    // Burn-in test: every pixel lit until this moment (UTC ticks; 0 = no test).
+    private long _testUntilTicks;
+
+    public bool TestPatternShowing => DateTime.UtcNow.Ticks < Interlocked.Read(ref _testUntilTicks);
+
+    /// <summary>Light every pixel for a while: burned-in areas show up as darker shapes.</summary>
+    public void ShowTestPattern(TimeSpan length)
+    {
+        if (!_running) return;
+        Interlocked.Exchange(ref _testUntilTicks, DateTime.UtcNow.Add(length).Ticks);
+        ThreadPool.QueueUserWorkItem(_ => Tick());
+    }
+
+    public void StopTestPattern()
+    {
+        Interlocked.Exchange(ref _testUntilTicks, 0);
+        if (_running) ThreadPool.QueueUserWorkItem(_ => Tick());
     }
 
     /// <summary>Hand the screen back right now (also used at startup after an unclean exit).</summary>
@@ -177,6 +221,7 @@ public sealed partial class BaseStationScreen : IDisposable
     /// <summary>Pick the page for this moment and draw it.</summary>
     private bool[] Compose(DashboardData d, DateTime now)
     {
+        if (TestPatternShowing) { var white = new bool[W * H]; Array.Fill(white, true); return white; }
         (string Title, string Text, DateTime Until)? popup;
         lock (_popupGate) popup = _popup;
         if (popup is { } p && DateTime.UtcNow < p.Until) return RenderPopup(p.Title, p.Text, now);

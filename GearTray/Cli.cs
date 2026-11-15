@@ -283,7 +283,9 @@ internal static class Cli
                                    $"spare battery {s.SpareBatteryPercent?.ToString() ?? "?"}%, noise {s.Noise}, transparency {s.TransparencyLevel}, " +
                                    $"mic {(s.MicMuted ? "muted" : "live")} vol {s.MicVolume}, mic LED {s.MicLedBrightness}, sidetone {s.Sidetone}, " +
                                    $"EQ {s.EqPreset} [{string.Join(" ", s.EqBandsDb)}], ChatMix {s.ChatMixGame}/{s.ChatMixChat}, " +
-                                   $"auto-off idx {s.AutoOffIndex}, OLED {s.OledBrightness}";
+                                   $"auto-off idx {s.AutoOffIndex}, OLED {s.OledBrightness}, " +
+                                   $"screen dims after {(ArctisNovaProWireless.DimMinutes[Math.Clamp(s.DimTimerIndex, 0, 6)] is int dm and > 0 ? dm + " min" : "never")}, " +
+                                   $"home screen {(s.HomeScreenSimple ? "simple" : "detailed")}";
                         });
                         break;
                 }

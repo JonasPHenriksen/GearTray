@@ -161,6 +161,35 @@ public sealed class TrayContext : ApplicationContext
             _mouseBattery);
     }
 
+    public bool ScreenTestRunning => _screen.TestPatternShowing;
+
+    /// <summary>
+    /// Burn-in test: every pixel lit at full brightness for a minute (worn areas show up darker), then the old brightness
+    /// and screen come back. Calling it again during the test ends it early.
+    /// </summary>
+    public async Task ScreenBurnInTestAsync()
+    {
+        if (_screen.TestPatternShowing) { _screen.StopTestPattern(); return; }
+        if (Devices.Get<ArctisNovaProWireless>() is not { Connected: true, CanDrawScreen: true } h)
+            throw new InvalidOperationException("The base station isn't connected.");
+        bool startedHere = !_screen.Running;
+        int brightness = await Devices.RunAsync(() => h.ReadState().OledBrightness);
+        try
+        {
+            if (startedHere) _screen.Start();
+            await Devices.RunAsync(() => h.SetScreenBrightness(10));
+            Log.Info("Base station screen: burn-in test");
+            _screen.ShowTestPattern(TimeSpan.FromSeconds(60));
+            while (_screen.TestPatternShowing) await Task.Delay(250);
+        }
+        finally
+        {
+            _screen.StopTestPattern();
+            if (startedHere) _screen.Stop();
+            await Devices.RunAsync(() => h.SetScreenBrightness(brightness));
+        }
+    }
+
     /// <summary>A pop-up on the base-station screen, if it's GearTray's and pop-ups are on.</summary>
     private void ScreenPopup(string title, string text)
     {
@@ -182,7 +211,15 @@ public sealed class TrayContext : ApplicationContext
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
     {
-        if (e.Mode == PowerModes.Suspend) { _ui.Post(_ => { _effects.Stop(); _screen.Stop(); }, null); return; }
+        if (e.Mode == PowerModes.Suspend)
+        {
+            _ui.Post(_ =>
+            {
+                _effects.Stop();
+                if (Settings.HeadsetScreen.DarkWhileAsleep) _screen.StopDark(); else _screen.Stop();
+            }, null);
+            return;
+        }
         if (e.Mode != PowerModes.Resume) return;
         _ui.Post(async _ =>
         {
