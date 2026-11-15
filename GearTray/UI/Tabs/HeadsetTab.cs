@@ -36,6 +36,9 @@ internal sealed class HeadsetTab : SettingsTab
     private readonly CheckBox _screenStats = new() { Text = "PC stats, while a game runs", AutoSize = true };
     private readonly CheckBox _screenPopups = new() { Text = "Pop-ups for game mode, program profiles and the controller", AutoSize = true };
     private readonly CheckBox _darkAsleep = new() { Text = "Leave the screen dark while the PC sleeps (not the base station's own screen)", AutoSize = true };
+    private readonly CheckBox _shift = new() { Text = "Move the picture by a pixel every minute", AutoSize = true };
+    private readonly CheckBox _offIdle = new() { Text = "Turn the screen off after", AutoSize = true, Margin = new Padding(3, 6, 0, 3) };
+    private readonly NumericUpDown _offIdleMinutes = new() { Minimum = 1, Maximum = 240, Width = 60 };
     private Button? _burnTest;
     private readonly NumericUpDown _secHome = PageSeconds(), _secMedia = PageSeconds(), _secStats = PageSeconds();
     private readonly TextBox _pingHost = new() { Width = 130, PlaceholderText = "e.g. 192.168.50.10" };
@@ -113,7 +116,7 @@ internal sealed class HeadsetTab : SettingsTab
 
         var screen = AddSection("screen", "Base station screen");
         screen.Span(_dashboard);
-        foreach (var page in new[] { _screenMedia, _screenStats, _screenPopups, _darkAsleep })
+        foreach (var page in new[] { _screenMedia, _screenStats, _screenPopups })
         {
             page.Margin = new Padding(24, 2, 3, 2);
             screen.Span(page);
@@ -122,16 +125,37 @@ internal sealed class HeadsetTab : SettingsTab
             Section.Caption("Home"), _secHome, Section.Caption("Now playing"), _secMedia, Section.Caption("PC stats"), _secStats));
         screen.Row("Server to ping", Section.Line(_pingHost, Section.Caption("IP address or name; leave empty for none")));
         screen.Row("Weather for", Section.Line(_weatherPlace, _weatherFound));
-        _burnTest = Ui.Button("Burn-in test", async (_, _) => await BurnInTest());
-        screen.Row("Check for burn-in", Section.Line(_burnTest, Section.Caption("every pixel lit at full brightness for a minute")));
         screen.Note("Replaces the base station's normal screen while GearTray runs. The home page (clock, date, download and upload " +
                     "speed, volume, headset and mouse battery, and the weather) is always there; now playing and PC stats join it " +
                     "only while they apply, and the pages take turns, each staying up for the seconds set above (a new song shows " +
                     "right away). The server is pinged every second and shows next to the date as \"Server: On\", or \"Off\" after " +
                     "two missed answers in a row. The weather comes from Open-Meteo (open-meteo.com, free, no account) every 15 " +
-                    "minutes. The screen steps aside for a few seconds whenever you turn a knob, shifts by a pixel every minute " +
-                    "against burn-in, and gives the screen back when you untick it or exit GearTray, and when the PC sleeps unless " +
-                    "it's left dark. The burn-in test shows worn areas as darker shapes; click it again to end it early.");
+                    "minutes. The screen steps aside for a few seconds whenever you turn a knob, and gives the screen back when " +
+                    "you untick it or exit GearTray.");
+
+        var burn = AddSection("burnin", "Burn-in protection");
+        burn.Span(_shift);
+        burn.Span(Section.Line(_offIdle, _offIdleMinutes, Section.Caption("minutes without mouse or keyboard use")));
+        burn.Span(_darkAsleep);
+        _burnTest = Ui.Button("Burn-in test", async (_, _) => await BurnInTest());
+        burn.Row("Check for burn-in", Section.Line(_burnTest, Section.Caption("every pixel lit at full brightness for a minute")));
+        burn.Note("The base station's screen is an OLED: pixels that stay lit wear and go dimmer. These keep GearTray's screen " +
+                  "from wearing the same pixels all day. The screen comes back as soon as you touch the mouse or keyboard, and " +
+                  "never goes off while a game runs (a controller doesn't count as input to Windows). Without \"leave dark\", " +
+                  "the base station's own screen shows while the PC sleeps. The burn-in test shows worn areas as darker " +
+                  "shapes; click it again to end it early.");
+        _shift.Checked = Tray.Settings.HeadsetScreen.ShiftPicture;
+        _offIdle.Checked = Tray.Settings.HeadsetScreen.OffWhenIdle;
+        _offIdleMinutes.Value = Math.Clamp(Tray.Settings.HeadsetScreen.OffWhenIdleMinutes, 1, 240);
+        _offIdleMinutes.Enabled = _offIdle.Checked;
+        _shift.CheckedChanged += (_, _) => { Tray.Settings.HeadsetScreen.ShiftPicture = _shift.Checked; Tray.SaveSettings(); };
+        _offIdle.CheckedChanged += (_, _) =>
+        {
+            Tray.Settings.HeadsetScreen.OffWhenIdle = _offIdle.Checked;
+            Tray.SaveSettings();
+            _offIdleMinutes.Enabled = _offIdle.Checked && _dashboard.Checked;
+        };
+        _offIdleMinutes.ValueChanged += (_, _) => { Tray.Settings.HeadsetScreen.OffWhenIdleMinutes = (int)_offIdleMinutes.Value; Tray.SaveSettings(); };
         var screenSettings = Tray.Settings.HeadsetScreen;
         _dashboard.Checked = screenSettings.Dashboard;
         _screenMedia.Checked = screenSettings.ShowNowPlaying;
@@ -175,9 +199,12 @@ internal sealed class HeadsetTab : SettingsTab
             if (_weatherFound.IsDisposed) return;
             _weatherFound.Text = typed.Length == 0 ? weatherHint : found?.Label ?? (failed is null ? "not found" : "couldn't look it up: " + failed);
         };
-        void UpdatePageBoxes() =>
+        void UpdatePageBoxes()
+        {
             _screenMedia.Enabled = _screenStats.Enabled = _screenPopups.Enabled = _darkAsleep.Enabled = _secHome.Enabled = _secMedia.Enabled =
-            _secStats.Enabled = _pingHost.Enabled = _weatherPlace.Enabled = _dashboard.Checked;
+            _secStats.Enabled = _pingHost.Enabled = _weatherPlace.Enabled = _shift.Enabled = _offIdle.Enabled = _dashboard.Checked;
+            _offIdleMinutes.Enabled = _dashboard.Checked && _offIdle.Checked;
+        }
         UpdatePageBoxes();
         _dashboard.CheckedChanged += (_, _) =>
         {

@@ -61,6 +61,11 @@ public sealed class HeadsetScreenSettings
     public int PcStatsSeconds { get; set; } = 8;
     /// <summary>When the PC goes to sleep, leave the screen black instead of handing it back to the base station.</summary>
     public bool DarkWhileAsleep { get; set; } = true;
+    /// <summary>Move the picture by a pixel every minute (against burn-in).</summary>
+    public bool ShiftPicture { get; set; } = true;
+    /// <summary>Black screen after OffWhenIdleMinutes without mouse or keyboard input (not while a game runs).</summary>
+    public bool OffWhenIdle { get; set; } = true;
+    public int OffWhenIdleMinutes { get; set; } = 10;
     /// <summary>The dashboard was showing when GearTray last ran (so the screen gets handed back at startup if needed).</summary>
     public bool WasShowing { get; set; }
 }

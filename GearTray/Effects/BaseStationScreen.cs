@@ -9,11 +9,11 @@ namespace GearTray.Effects;
 /// What the base-station screen needs from the tray. Game is the running game's name, if any. The *Seconds values are
 /// how long each page stays up when more than one page applies. PingHost is the server to ping (empty: none);
 /// WeatherLatitude/Longitude the place for the home page's weather (null: none); MouseBattery the mouse's last known
-/// battery (null: no mouse, or not read yet).
+/// battery (null: no mouse, or not read yet). Blank = show nothing (nobody is using the PC).
 /// </summary>
 public sealed record DashboardData(string? Game = null, DateTime? GameStarted = null, bool ShowMedia = true, bool ShowStats = true,
     int HomeSeconds = 8, int MediaSeconds = 6, int StatsSeconds = 8, uint GamePid = 0, string? PingHost = null,
-    double? WeatherLatitude = null, double? WeatherLongitude = null, BatteryInfo? MouseBattery = null);
+    double? WeatherLatitude = null, double? WeatherLongitude = null, BatteryInfo? MouseBattery = null, bool Blank = false);
 
 public enum ScreenPage { Home, Media, Stats }
 
@@ -222,6 +222,7 @@ public sealed partial class BaseStationScreen : IDisposable
     private bool[] Compose(DashboardData d, DateTime now)
     {
         if (TestPatternShowing) { var white = new bool[W * H]; Array.Fill(white, true); return white; }
+        if (d.Blank) return new bool[W * H];
         (string Title, string Text, DateTime Until)? popup;
         lock (_popupGate) popup = _popup;
         if (popup is { } p && DateTime.UtcNow < p.Until) return RenderPopup(p.Title, p.Text, now);
@@ -461,6 +462,9 @@ public sealed partial class BaseStationScreen : IDisposable
 
     private static string Played(TimeSpan t) => t.TotalMinutes < 1 ? "now" : t.TotalHours >= 1 ? $"{(int)t.TotalHours}h {t.Minutes:00}m" : $"{t.Minutes}m";
 
+    /// <summary>Move every page by a pixel each minute (a 2×2 square, so no stroke stays lit all the time).</summary>
+    public static volatile bool ShiftAgainstBurnIn = true;
+
     /// <summary>Draw into a 1-bit 128×64 frame (pixels[x + y*128]), moved by a pixel each minute against burn-in.</summary>
     private static bool[] Draw(DateTime now, Action<Graphics> paint)
     {
@@ -469,7 +473,7 @@ public sealed partial class BaseStationScreen : IDisposable
         {
             g.Clear(Color.Black);
             g.TextRenderingHint = TextRenderingHint.SingleBitPerPixelGridFit;
-            int shift = now.Minute % 4;
+            int shift = ShiftAgainstBurnIn ? now.Minute % 4 : 0;
             g.TranslateTransform(shift is 1 or 2 ? 1 : 0, shift >= 2 ? 1 : 0);
             paint(g);
         }

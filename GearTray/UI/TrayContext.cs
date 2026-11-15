@@ -155,10 +155,35 @@ public sealed class TrayContext : ApplicationContext
     private DashboardData DashboardSnapshot()
     {
         var s = Settings.HeadsetScreen;
-        var game = s.ShowPcStats ? _games.RunningGame() : null; // still counts while alt-tabbed out of it
+        BaseStationScreen.ShiftAgainstBurnIn = s.ShiftPicture;
+        var running = _games.RunningGame(); // still counts while alt-tabbed out of it
+        var game = s.ShowPcStats ? running : null;
         return new DashboardData(game?.Name, game?.Started, s.ShowNowPlaying, s.ShowPcStats,
             s.ClockSeconds, s.NowPlayingSeconds, s.PcStatsSeconds, game?.Pid ?? 0, s.PingHost, s.WeatherLatitude, s.WeatherLongitude,
-            _mouseBattery);
+            _mouseBattery, Blank: ScreenIdle(s, running is not null));
+    }
+
+    private bool _screenBlank;
+
+    /// <summary>
+    /// Nobody has touched the mouse or keyboard for the set minutes, and no game runs (a controller doesn't count as
+    /// input to Windows, so games are left alone).
+    /// </summary>
+    private bool ScreenIdle(HeadsetScreenSettings s, bool gameRunning)
+    {
+        bool idle = false;
+        if (s.OffWhenIdle && !gameRunning)
+        {
+            var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
+            uint limit = (uint)Math.Clamp(s.OffWhenIdleMinutes, 1, 240) * 60_000u;
+            idle = GetLastInputInfo(ref info) && unchecked((uint)Environment.TickCount - info.dwTime) > limit;
+        }
+        if (idle != _screenBlank)
+        {
+            _screenBlank = idle;
+            Log.Info(idle ? "Base station screen: off (nobody at the PC)" : "Base station screen: back on");
+        }
+        return idle;
     }
 
     public bool ScreenTestRunning => _screen.TestPatternShowing;

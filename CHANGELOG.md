@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.0 (2026-11-15)
+
+- **Burn-in protection section** on the Headset tab, each part switchable:
+  - Move the picture by a pixel every minute (as before, now optional). It
+    stays a 2×2 square: the home page uses the full width, so a bigger move
+    would cut off its edges.
+  - **New:** turn the screen off after N minutes (default 10) without mouse or
+    keyboard use; it comes back with the first input. Never while a game runs,
+    since a controller doesn't count as input to Windows.
+  - Leave the screen dark while the PC sleeps (from 0.12.0, moved here).
+  - The burn-in test moved here too.
+
 ## 0.12.0 (2026-11-15)
 
 - **Dark base-station screen while the PC sleeps.** On this PC the displays
